@@ -1,0 +1,28 @@
+{
+  "grid": { "width": 20, "height": 12 },
+  "stations": [
+    { "id": "P1", "type": "PICKUP",  "x": 0,  "y": 1 },
+    { "id": "P2", "type": "PICKUP",  "x": 0,  "y": 4 },
+    { "id": "P3", "type": "PICKUP",  "x": 0,  "y": 7 },
+    { "id": "P4", "type": "PICKUP",  "x": 0,  "y": 10 },
+    { "id": "D1", "type": "DROP",    "x": 19, "y": 3 },
+    { "id": "D2", "type": "DROP",    "x": 19, "y": 8 },
+    { "id": "C1", "type": "CHARGER", "x": 10, "y": 0, "capacity": 2, "queue": { "x": 10, "y": 1 } }
+  ],
+  "robots": [
+    { "id": "R1", "x": 8,  "y": 11, "battery": 100 },
+    { "id": "R2", "x": 9,  "y": 11, "battery": 100 },
+    { "id": "R3", "x": 10, "y": 11, "battery": 100 },
+    { "id": "R4", "x": 11, "y": 11, "battery": 100 },
+    { "id": "R5", "x": 12, "y": 11, "battery": 100 }
+  ],
+  "simulation": {
+    "tick_seconds": 1.0,
+    "battery_per_cell": 0.5,
+    "charge_per_second": 2.0,
+    "load_seconds": 3,
+    "unload_seconds": 3,
+    "min_battery_to_assign": 30,
+    "low_battery_threshold": 20
+  }
+}

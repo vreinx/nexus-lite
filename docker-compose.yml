@@ -1,0 +1,58 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  influxdb:
+    image: influxdb:2.7
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      # Setup automático en el primer arranque: sin pasos manuales
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: nexus-admin-pass
+      DOCKER_INFLUXDB_INIT_ORG: andyor
+      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+      DOCKER_INFLUXDB_INIT_RETENTION: 7d
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: nexus-dev-token
+    volumes:
+      - influx-data:/var/lib/influxdb2
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MAP_FILE: config/map.json
+      MONGO_URL: mongodb://mongo:27017
+      MONGO_DB: nexus_lite
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: nexus-dev-token
+      INFLUX_ORG: andyor
+      INFLUX_BUCKET: telemetry
+    depends_on:
+      mongo:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+
+volumes:
+  mongo-data:
+  influx-data:
