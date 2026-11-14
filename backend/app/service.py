@@ -9,7 +9,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Awaitable, Callable
 
 from app.domain.models import Mission, MissionState, Robot
 from app.domain.simulator import FleetSimulator, MissionError
@@ -17,6 +17,8 @@ from app.map_config import MapConfig
 from app.repository import MissionRepository
 
 log = logging.getLogger("nexus.service")
+
+Notifier = Callable[[list[Robot], list[Mission]], Awaitable[None]]
 
 
 class RepositoryUnavailable(Exception):
@@ -34,6 +36,20 @@ class FleetService:
         self.clock = clock
         self._lock = asyncio.Lock()
         self._task: asyncio.Task | None = None
+        # B-04: se llama con lo que cambia (lo engancha main.py al WebSocket).
+        # Va dentro del candado para que los mensajes salgan en orden.
+        self.notify: Notifier | None = None
+
+    @property
+    def lock(self) -> asyncio.Lock:
+        return self._lock
+
+    async def _notify(self, robots: list[Robot], missions: list[Mission]) -> None:
+        if self.notify:
+            try:
+                await self.notify(robots, missions)
+            except Exception:
+                log.exception("Error notificando cambios en tiempo real")
 
     # ------------------------------------------------------------ ciclo de vida
     async def start(self, run_loop: bool = True) -> None:
@@ -94,6 +110,7 @@ class FleetService:
             self.sim.tick()
             robots, missions = self.sim.drain_changes()
             await self._persist(missions)
+            await self._notify(robots, missions)
         return robots, missions
 
     async def _persist(self, missions: list[Mission]) -> None:
@@ -116,6 +133,7 @@ class FleetService:
             except Exception as e:
                 self.sim.remove_mission(m.id)
                 raise RepositoryUnavailable("no se pudo guardar la misión") from e
+            await self._notify([], [m])
         return m
 
     async def cancel_mission(self, mission_id: str) -> Mission:
@@ -129,6 +147,8 @@ class FleetService:
                     raise
                 raise MissionError(f"no se puede cancelar una misión en estado {stored.state.value}")
             await self._persist([m])
+            # El robot liberado (si lo había) se notifica en el siguiente tick.
+            await self._notify([], [m])
         return m
 
     async def get_mission(self, mission_id: str) -> Mission | None:

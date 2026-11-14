@@ -71,3 +71,21 @@ def test_robots(client):
     assert client.get("/api/v1/robots/R3").json()["x"] == 10
     assert client.get("/api/v1/robots/R9").status_code == 404
     assert client.get("/api/v1/missions/no-existe").status_code == 404
+
+
+def test_websocket_snapshot_y_updates(client):
+    mid = crear(client, "P3", "D2", 1).json()["id"]
+    with client.websocket_connect("/ws") as ws:
+        snap = ws.receive_json()
+        assert snap["type"] == "snapshot"
+        assert len(snap["robots"]) == 5
+        assert [m["id"] for m in snap["missions"]] == [mid]
+
+        # Crear otra misión se notifica al momento
+        otra = crear(client, "P1", "D1", 2).json()["id"]
+        upd = ws.receive_json()
+        assert upd["type"] == "update" and upd["missions"][0]["id"] == otra
+
+        client.post(f"/api/v1/missions/{otra}/cancel")
+        upd = ws.receive_json()
+        assert upd["missions"][0]["state"] == "CANCELLED"

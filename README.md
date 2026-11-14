@@ -10,6 +10,7 @@ Mini gestor de flota AMR: un backend que simula 5 robots en un almacén de 20 ×
 docker compose up --build
 ```
 
+- **Aplicación: http://localhost:8080**
 - Backend: http://localhost:8000 (documentación OpenAPI en http://localhost:8000/docs)
 - InfluxDB: http://localhost:8086 (admin / nexus-admin-pass)
 
@@ -29,7 +30,7 @@ pytest
 | Tiempo real | WebSocket |
 | Misiones | MongoDB |
 | Telemetría | InfluxDB 2 |
-| Frontend | Svelte (pendiente) |
+| Frontend | Svelte 5 + Vite, servido por nginx (proxy de /api y /ws) |
 
 ## Mapa
 

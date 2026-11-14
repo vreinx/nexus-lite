@@ -3,10 +3,11 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Callable
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from app.api import router
 from app.map_config import load_map
+from app.realtime import ConnectionManager, encode
 from app.repository import MissionRepository, MongoMissionRepository
 from app.service import FleetService
 from app.settings import settings
@@ -28,13 +29,14 @@ def create_app(
     async def lifespan(app: FastAPI):
         app.state.map = load_map(settings.map_file)
         app.state.service = FleetService(app.state.map, repository_factory())
+        app.state.service.notify = app.state.ws_clients.broadcast
         await app.state.service.start(run_loop=run_simulation)
         yield
         await app.state.service.stop()
 
     app = FastAPI(
         title="NEXUS Lite",
-        version="0.2.0",
+        version="0.3.0",
         description="Mini gestor de flota AMR: misiones, asignación y telemetría.",
         lifespan=lifespan,
     )
@@ -47,6 +49,26 @@ def create_app(
     async def get_map():
         """Configuración del mapa: cuadrícula, estaciones y robots iniciales."""
         return app.state.map
+
+    app.state.ws_clients = ConnectionManager()
+
+    @app.websocket("/ws")
+    async def ws_endpoint(ws: WebSocket):
+        """B-04: snapshot al conectar y después solo los cambios."""
+        await ws.accept()
+        service: FleetService = app.state.service
+        # Con el candado: entre el snapshot y el alta no se cuela ningún update.
+        async with service.lock:
+            missions = await service.repo.find(limit=100)
+            await ws.send_text(encode("snapshot", service.list_robots(), missions))
+            app.state.ws_clients.add(ws)
+        try:
+            while True:
+                await ws.receive_text()   # el cliente no envía nada; esperamos al cierre
+        except WebSocketDisconnect:
+            pass
+        finally:
+            app.state.ws_clients.remove(ws)
 
     app.include_router(router)
     return app
