@@ -6,8 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.main import app
+from app.main import create_app
 from app.map_config import MapConfig, load_map
+from app.repository import InMemoryMissionRepository
 
 MAP_FILE = Path(__file__).parent.parent / "config" / "map.json"
 
@@ -45,6 +46,7 @@ def test_falta_cargador_falla():
 
 
 def test_health_y_mapa():
+    app = create_app(InMemoryMissionRepository, run_simulation=False)
     with TestClient(app) as client:
         assert client.get("/health").json() == {"status": "ok"}
         body = client.get("/api/v1/map").json()

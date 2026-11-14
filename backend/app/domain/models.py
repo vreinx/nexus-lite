@@ -60,4 +60,4 @@ class Mission:
     state: MissionState = MissionState.PENDING
     robot_id: str | None = None
     updated_at: datetime | None = None
-    reason: str | None = None   # motivo si termina en FAILED / CANCELLED
+    reason: str | None = None   # motivo de FAILED / CANCELLED, o nota (p. ej. reencolada tras reinicio)

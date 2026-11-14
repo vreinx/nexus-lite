@@ -73,6 +73,15 @@ class FleetSimulator:
         self.missions[m.id] = m
         self._touch_mission(m)
 
+    def remove_mission(self, mission_id: str) -> None:
+        """Deshace un add_mission (si no se pudo guardar en base de datos)."""
+        self.missions.pop(mission_id, None)
+        self._dirty_missions.discard(mission_id)
+
+    def mark_missions_dirty(self, mission_ids) -> None:
+        """Vuelve a marcar misiones para guardarlas (si falló la escritura)."""
+        self._dirty_missions.update(i for i in mission_ids if i in self.missions)
+
     def cancel_mission(self, mission_id: str) -> Mission:
         m = self.missions.get(mission_id)
         if m is None:
