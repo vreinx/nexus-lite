@@ -51,14 +51,8 @@
 
   const center = (x) => x * C + C / 2;
 
-  // Rectángulo de una estación: una celda, o varias contiguas si es un cargador con plazas
-  function box(s) {
-    const cells = s.bays?.length ? s.bays : [{ x: s.x, y: s.y }];
-    const xs = cells.map((c) => c.x), ys = cells.map((c) => c.y);
-    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
-    return { x: x0 * C + 2, y: y0 * C + 2, w: (x1 - x0 + 1) * C - 4, h: (y1 - y0 + 1) * C - 4,
-             cx: ((x0 + x1 + 1) / 2) * C, cy: ((y0 + y1 + 1) / 2) * C };
-  }
+  // Celdas que ocupa una estación: una, o una por plaza si es un cargador
+  const cellsOf = (s) => (s.bays?.length ? s.bays : [{ x: s.x, y: s.y }]);
 
   // Crear orden haciendo clic en una estación de recogida
   let picker = $state(null);
@@ -93,7 +87,6 @@
     <!-- Estaciones -->
     {#each map.stations as s}
       {@const st = STATION_STYLE[s.type]}
-      {@const b = box(s)}
       {#if s.queue}
         <rect x={s.queue.x * C + 3} y={s.queue.y * C + 3} width={C - 6} height={C - 6}
               rx="4" fill="none" stroke={st.stroke} stroke-dasharray="4 3" />
@@ -109,18 +102,15 @@
           <title>Clic para crear una orden desde {s.id}</title>
         </rect>
       {:else}
-        <rect x={b.x} y={b.y} width={b.w} height={b.h} rx="5"
-              fill={st.fill} stroke={st.stroke} stroke-width="2" stroke-dasharray={st.dash ?? 'none'} />
-        {#if s.bays?.length > 1}
-          {#each s.bays.slice(1) as bay}
-            <line x1={bay.x * C} y1={b.y + 5} x2={bay.x * C} y2={b.y + b.h - 5}
-                  stroke={st.stroke} stroke-width="1" stroke-dasharray="3 3" opacity="0.6" />
-          {/each}
-        {/if}
+        {#each cellsOf(s) as c}
+          <rect x={c.x * C + 2} y={c.y * C + 2} width={C - 4} height={C - 4} rx="5"
+                fill={st.fill} stroke={st.stroke} stroke-width="2" stroke-dasharray={st.dash ?? 'none'} />
+        {/each}
       {/if}
-      <text x={b.cx} y={b.cy + 4} class="station-label" class:small={st.small}
-            pointer-events="none"
-            fill={st.stroke}>{s.id}</text>
+      {#each cellsOf(s) as c}
+        <text x={center(c.x)} y={center(c.y) + 4} class="station-label" class:small={st.small}
+              pointer-events="none" fill={st.stroke}>{s.id}</text>
+      {/each}
     {/each}
 
     <!-- Ruta hasta el destino: en L, primero X y luego Y, como se mueve el robot -->

@@ -77,7 +77,7 @@ def test_c1_llena_cola_fifo(make_sim):
     # Los dos con menos batería ocupan C1; el tercero va a la celda de espera.
     assert set(sim.charger_slots) == {"R1", "R2"}
     assert list(sim.charger_queue) == ["R3"]
-    assert sim.robots["R3"].target == (12, 0)
+    assert sim.robots["R3"].target == (11, 0)   # celda de cola, entre las dos plazas
 
     max_cargando = 0
     def r3_cargando():
@@ -209,3 +209,42 @@ def test_bateria_baja_va_a_cargar_antes_que_al_parking(make_sim):
     sim = make_sim(robots=[{"id": "R1", "x": 3, "y": 5, "battery": 15}])
     sim.tick()
     assert sim.robots["R1"].state == RobotState.TO_CHARGER
+
+
+def test_cola_de_carga_llena_espera_en_parking_sin_coger_ordenes(make_sim):
+    # 2 plazas (10,0) y (12,0) + 1 celda de cola (11,0). Cuatro robots con
+    # batería baja: dos cargan, uno a la cola y el cuarto espera en un parking.
+    sim = make_sim(robots=[
+        {"id": "R1", "x": 10, "y": 2, "battery": 10},
+        {"id": "R2", "x": 12, "y": 2, "battery": 11},
+        {"id": "R3", "x": 11, "y": 3, "battery": 12},
+        {"id": "R4", "x": 6,  "y": 4, "battery": 13},
+    ])
+    sim.tick()
+    r3, r4 = sim.robots["R3"], sim.robots["R4"]
+    assert set(sim.charger_slots) == {"R1", "R2"}
+    assert r3.target == (11, 0)
+    parkings = {pos for _, pos in sim.parkings}
+    assert r4.state == RobotState.TO_CHARGER and r4.target in parkings
+
+    # Una orden justo al lado del parking: R4 NO puede cogerla mientras espera.
+    sim.add_mission(mission("m1", "P2", "D1", priority=1))
+    aparcado_esperando = False
+    def r4_cargando():
+        assert r4.mission_id is None, "un robot esperando turno de carga ha cogido una orden"
+        nonlocal aparcado_esperando
+        aparcado_esperando |= r4.pos in parkings and r4.state == RobotState.TO_CHARGER
+        return r4.state == RobotState.CHARGING
+    run_until(sim, r4_cargando, max_ticks=400)
+
+    assert aparcado_esperando                 # esperó en el parking
+    assert r4.pos in sim.charger_bays         # y al quedar plaza fue directo a cargar
+    assert sim.missions["m1"].robot_id != "R4"
+
+
+def test_robot_esperando_turno_de_carga_no_es_asignable(make_sim):
+    from app.domain.assignment import is_eligible
+    sim = make_sim(robots=[{"id": "R1", "x": 4, "y": 2, "battery": 15}])
+    r = sim.robots["R1"]
+    sim._send_to_charger(r)
+    assert not is_eligible(r, 0)   # TO_CHARGER, aunque esté parado en un parking

@@ -6,9 +6,18 @@
   let mission = $derived(robot?.mission_id ? fleet.missions[robot.mission_id] : null);
 
   // Nombre de la estación en una celda (para mostrar "PK2", "C1", "P3"...)
-  const stationAt = (x, y) => fleet.map?.stations.find((s) => s.x === x && s.y === y)?.id;
+  const stationAt = (x, y) =>
+    fleet.map?.stations.find((s) => (s.bays?.length ? s.bays : [s]).some((c) => c.x === x && c.y === y))?.id
+    ?? (fleet.map?.stations.some((s) => s.queue?.x === x && s.queue?.y === y) ? 'cola C1' : undefined);
   let here = $derived(robot ? stationAt(robot.x, robot.y) : null);
   let goingTo = $derived(robot?.target ? stationAt(robot.target[0], robot.target[1]) : null);
+
+  // Va a cargar pero su destino no es una plaza de C1: está esperando turno (cola o parking)
+  let bays = $derived(fleet.map?.stations.find((s) => s.type === 'CHARGER')?.bays ?? []);
+  let waitingCharge = $derived(
+    robot?.state === 'TO_CHARGER' && robot.target &&
+    !bays.some((b) => b.x === robot.target[0] && b.y === robot.target[1])
+  );
 </script>
 
 <div class="card">
@@ -19,7 +28,8 @@
     <div class="head">
       <strong class="id">{robot.id}</strong>
       <span class="badge" style="background:{ROBOT_COLORS[robot.state]}">{robot.state}</span>
-      {#if robot.waiting}<span class="waiting">Cediendo el paso</span>{/if}
+      {#if waitingCharge}<span class="waiting">Esperando turno de carga</span>
+      {:else if robot.waiting}<span class="waiting">Cediendo el paso</span>{/if}
     </div>
 
     <dl>

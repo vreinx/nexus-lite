@@ -168,7 +168,6 @@ class FleetSimulator:
             if r.battery >= self.p.charge_target:
                 r.state, r.target = RobotState.IDLE, None
                 self.charger_slots.pop(r.id, None)
-                self._admit_from_queue()
 
     def _arrive(self, r: Robot) -> None:
         r.waiting, r.blocked_ticks = False, 0
@@ -207,7 +206,6 @@ class FleetSimulator:
             self.charger_queue.remove(r.id)
         r.state, r.mission_id, r.target, r.waiting = RobotState.ERROR, None, None, False
         self._touch_robot(r)
-        self._admit_from_queue()
 
     # -------------------------------------------------------------------- Tráfico
     # Reglas (dos robots nunca comparten celda):
@@ -256,6 +254,12 @@ class FleetSimulator:
             cells.add((x, y))
         return cells
 
+    def _can_make_way(self, r: Robot) -> bool:
+        """Robot parado que puede apartarse si estorba."""
+        if r.state == RobotState.IDLE:
+            return r.target is None or r.pos == r.target
+        return r.state == RobotState.TO_CHARGER and r.id in self.charger_queue and r.pos == r.target
+
     def _in_grid(self, c: Pos) -> bool:
         return 0 <= c[0] < self.width and 0 <= c[1] < self.height
 
@@ -289,7 +293,8 @@ class FleetSimulator:
                     continue
             elif (r.hold_ticks == 0 and steps[0] != r.target and blocker is not None
                   and r.id not in self.charger_queue   # en la cola de C1 se espera, sin gastar batería
-                  and not self._is_travelling(blocker) and r.blocked_ticks >= DETOUR_AFTER):
+                  and not self._can_make_way(blocker) and not self._is_travelling(blocker)
+                  and r.blocked_ticks >= DETOUR_AFTER):
                 # Bloqueado por un robot que no se va a mover: lo rodeo.
                 if self._sidestep(r, occupied, avoid={blocker.pos}):
                     continue
@@ -300,11 +305,13 @@ class FleetSimulator:
                 if not was_waiting:
                     self._touch_robot(r)
 
-        # Robots parados que estorban (aparcados o libres sin destino): se apartan.
+        # Robots parados que estorban se apartan y luego vuelven: aparcados,
+        # libres sin destino y los que esperan turno de carga (parking o cola).
         for pos, higher in list(wanted_by.items()):
             r = occupied.get(pos)
-            if r is not None and r.state == RobotState.IDLE and r.target is None:
-                self._sidestep(r, occupied, avoid=self._route(higher.pos, higher.target))
+            if r is not None and self._can_make_way(r):
+                if self._sidestep(r, occupied, avoid=self._route(higher.pos, higher.target)):
+                    r.hold_ticks = 1
 
     def _move_to(self, r: Robot, cell: Pos, occupied: dict[Pos, Robot]) -> None:
         del occupied[r.pos]
@@ -330,10 +337,13 @@ class FleetSimulator:
         return True
 
     # ---------------------------------------------------------------------- B-03
+    # Cola de carga (FIFO): robots con batería baja que esperan plaza en C1.
+    #   - Si hay plaza libre, el primero de la cola va directo a ella.
+    #   - Si no, el primero espera en la celda de cola de C1 (una sola plaza).
+    #   - El resto espera en el parking libre más cercano (o donde esté si no hay).
+    # Mientras esperan siguen en TO_CHARGER: no están IDLE, así que nunca se
+    # les asigna una misión aunque estén parados en un parking.
     def _send_low_battery_to_charger(self) -> None:
-        # Plazas que se hayan liberado (también si la plaza aún estaba ocupada
-        # físicamente cuando el robot anterior terminó de cargar).
-        self._admit_from_queue()
         low = [
             r for r in self.robots.values()
             if r.state == RobotState.IDLE and r.battery < self.p.low_battery_threshold
@@ -341,19 +351,51 @@ class FleetSimulator:
         # Si varios bajan del umbral a la vez, primero el de menos batería.
         for r in sorted(low, key=lambda r: (r.battery, r.id)):
             self._send_to_charger(r)
+        self._update_charger_queue()
 
     def _send_to_charger(self, r: Robot) -> None:
         r.state = RobotState.TO_CHARGER
-        bay = self._free_bay(r.pos) if not self.charger_queue else None
-        if bay:
-            self.charger_slots[r.id] = bay
-            r.target = bay
-        else:
-            # C1 llena: a la celda de espera, por orden de llegada (FIFO).
-            # Si la celda de espera ya está ocupada, espera donde le pille.
-            self.charger_queue.append(r.id)
-            r.target = self.charger_queue_pos or r.pos
+        r.target = None
+        self.charger_queue.append(r.id)
         self._touch_robot(r)
+
+    def _update_charger_queue(self) -> None:
+        # 1) Plazas libres para los primeros de la cola, en orden de llegada.
+        while self.charger_queue:
+            bay = self._free_bay(self.robots[self.charger_queue[0]].pos)
+            if bay is None:
+                break
+            r = self.robots[self.charger_queue.popleft()]
+            self.charger_slots[r.id] = bay
+            self._retarget(r, bay)
+
+        # 2) El primero que sigue esperando, a la celda de cola; el resto, a un parking.
+        for i, rid in enumerate(self.charger_queue):
+            r = self.robots[rid]
+            if i == 0 and self.charger_queue_pos is not None:
+                self._retarget(r, self.charger_queue_pos)
+            elif r.target is None or r.target == self.charger_queue_pos:
+                self._retarget(r, self._waiting_spot(r))
+
+    def _waiting_spot(self, r: Robot) -> Pos:
+        """Parking donde esperar turno de carga: el que hace más corto el trayecto
+        total (robot -> parking -> C1). Si no le llega la batería, espera donde está."""
+        charger = self.charger_queue_pos or self.charger_bays[0]
+        taken = self._taken_parkings(exclude=r)
+        options = [ppos for _, ppos in self.parkings if ppos not in taken]
+        if not options:
+            return r.pos
+        cost = lambda c: manhattan(r.pos, c) + manhattan(c, charger)
+        best = min(options, key=lambda c: (cost(c), c))
+        if r.battery - cost(best) * self.p.battery_per_cell < 1.0:
+            return r.pos
+        return best
+
+    def _retarget(self, r: Robot, target: Pos) -> None:
+        if r.target != target:
+            r.target = target
+            r.blocked_ticks = 0
+            self._touch_robot(r)
 
     def _free_bay(self, near: Pos) -> Pos | None:
         taken = set(self.charger_slots.values())
@@ -363,47 +405,44 @@ class FleetSimulator:
         free = [b for b in self.charger_bays if b not in taken and b not in blocked]
         return min(free, key=lambda b: (manhattan(near, b), b)) if free else None
 
-    def _admit_from_queue(self) -> None:
-        while self.charger_queue and len(self.charger_slots) < self.charger_capacity:
-            bay = self._free_bay(self.robots[self.charger_queue[0]].pos)
-            if bay is None:
-                return
-            r = self.robots[self.charger_queue.popleft()]
-            self.charger_slots[r.id] = bay
-            r.target = bay
-            self._touch_robot(r)
-
     # ------------------------------------------------------------------ parkings
     def parking_at(self, pos: Pos) -> str | None:
         return next((pid for pid, ppos in self.parkings if ppos == pos), None)
 
+    def _taken_parkings(self, exclude: Robot | None = None) -> set[Pos]:
+        """Parkings ocupados (robot parado encima) o reservados (robot que va hacia él)."""
+        cells = {ppos for _, ppos in self.parkings}
+        taken = set()
+        for r in self.robots.values():
+            if r is exclude:
+                continue
+            if r.target in cells:
+                taken.add(r.target)
+            elif r.target is None and r.pos in cells:
+                taken.add(r.pos)
+        return taken
+
     def _send_idle_to_parking(self) -> None:
         if not self.parkings:
             return
-        idle = [r for r in self.robots.values() if r.state == RobotState.IDLE]
-        parking_cells = {ppos for _, ppos in self.parkings}
+        cells = {ppos for _, ppos in self.parkings}
+        idle = sorted((r for r in self.robots.values() if r.state == RobotState.IDLE), key=lambda r: r.id)
 
-        # Ocupados: robots ya aparcados (IDLE, sin destino, en un parking)
-        occupied = {r.pos for r in idle if r.target is None and r.pos in parking_cells}
-        # Reservados: robots que ya van hacia un parking. Si su parking se ha
-        # ocupado entretanto (o lo comparte con otro), se le busca otro.
-        for r in sorted(idle, key=lambda r: r.id):
-            if r.target is not None:
-                if r.target in occupied:
-                    r.target = None
-                else:
-                    occupied.add(r.target)
+        # Si el parking al que iba un robot libre se ha ocupado o reservado
+        # entretanto (p. ej. por un robot que espera para cargar), busca otro.
+        for r in idle:
+            if r.target in cells and r.target in self._taken_parkings(exclude=r):
+                r.target = None
 
         # Sin destino y fuera de un parking: al parking libre más cercano.
-        homeless = [r for r in idle if r.target is None and r.pos not in parking_cells]
-        for r in sorted(homeless, key=lambda r: r.id):
-            free = [(pid, ppos) for pid, ppos in self.parkings if ppos not in occupied]
-            if not free:
-                return  # sin hueco: se quedan donde están y se reintenta el siguiente tick
-            _, ppos = min(free, key=lambda p: (manhattan(r.pos, p[1]), p[0]))
-            occupied.add(ppos)
-            r.target = ppos
-            self._touch_robot(r)
+        for r in idle:
+            if r.target is None and r.pos not in cells:
+                taken = self._taken_parkings(exclude=r)
+                free = [(pid, ppos) for pid, ppos in self.parkings if ppos not in taken]
+                if not free:
+                    return  # sin hueco: se quedan donde están y se reintenta el siguiente tick
+                _, ppos = min(free, key=lambda p: (manhattan(r.pos, p[1]), p[0]))
+                self._retarget(r, ppos)
 
     # ---------------------------------------------------------------------- B-02
     def _assign(self) -> None:
