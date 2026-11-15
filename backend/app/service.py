@@ -15,7 +15,7 @@ from typing import Awaitable, Callable
 from app.domain.models import Mission, MissionState, Robot
 from app.domain.simulator import FleetSimulator, MissionError
 from app.map_config import MapConfig
-from app.repository import MissionRepository
+from app.repository import MissionFilter, MissionRepository
 from app.telemetry import TelemetryStore
 
 log = logging.getLogger("nexus.service")
@@ -154,6 +154,24 @@ class FleetService:
     async def create_mission(self, origin: str, destination: str, priority: int) -> Mission:
         m = Mission(id=str(uuid.uuid4()), origin=origin, destination=destination,
                     priority=priority, created_at=self.clock())
+        return await self._add_and_save(m)
+
+    async def retry_mission(self, mission_id: str, robot_id: str | None = None) -> Mission:
+        """Reenvía una misión FAILED o CANCELLED como misión nueva enlazada a la
+        original (la original queda intacta, para la trazabilidad)."""
+        original = await self.repo.get(mission_id)
+        if original is None:
+            raise KeyError(mission_id)
+        if original.state not in (MissionState.FAILED, MissionState.CANCELLED):
+            raise MissionError(f"solo se reenvían misiones FAILED o CANCELLED (está {original.state.value})")
+        if robot_id is not None and robot_id not in self.sim.robots:
+            raise ValueError(f"el robot '{robot_id}' no existe")
+        m = Mission(id=str(uuid.uuid4()), origin=original.origin, destination=original.destination,
+                    priority=original.priority, created_at=self.clock(),
+                    retry_of=original.id, preferred_robot=robot_id)
+        return await self._add_and_save(m)
+
+    async def _add_and_save(self, m: Mission) -> Mission:
         async with self._lock:
             self.sim.add_mission(m)   # ValueError si no es válida -> 422
             try:
@@ -183,8 +201,8 @@ class FleetService:
     async def get_mission(self, mission_id: str) -> Mission | None:
         return await self.repo.get(mission_id)
 
-    async def list_missions(self, state: MissionState | None, limit: int) -> list[Mission]:
-        return await self.repo.find(state, limit)
+    async def list_missions(self, flt: MissionFilter, limit: int, offset: int = 0) -> tuple[list[Mission], int]:
+        return await self.repo.find(flt, limit, offset), await self.repo.count(flt)
 
     # ------------------------------------------------------------------ robots
     def list_robots(self) -> list[Robot]:

@@ -65,3 +65,5 @@ class Mission:
     robot_id: str | None = None
     updated_at: datetime | None = None
     reason: str | None = None   # motivo de FAILED / CANCELLED, o nota (p. ej. reencolada tras reinicio)
+    retry_of: str | None = None          # id de la misión original si es un reenvío
+    preferred_robot: str | None = None   # si se reenvía a un robot concreto, solo ese puede hacerla

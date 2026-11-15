@@ -26,12 +26,20 @@ class MissionOut(BaseModel):
     created_at: datetime
     updated_at: datetime | None
     reason: str | None
+    retry_of: str | None = None
+    preferred_robot: str | None = None
 
     @classmethod
     def of(cls, m: Mission) -> "MissionOut":
         return cls(id=m.id, origin=m.origin, destination=m.destination, priority=m.priority,
                    state=m.state, robot_id=m.robot_id, created_at=m.created_at,
-                   updated_at=m.updated_at, reason=m.reason)
+                   updated_at=m.updated_at, reason=m.reason, retry_of=m.retry_of,
+                   preferred_robot=m.preferred_robot)
+
+
+class MissionRetry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    robot_id: str | None = Field(default=None, description="Robot concreto (vacío = cualquiera)")
 
 
 class RobotOut(BaseModel):

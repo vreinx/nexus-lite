@@ -472,10 +472,13 @@ class FleetSimulator:
         for r in self.robots.values():
             if r.state != RobotState.IDLE or r.battery >= self.p.charge_target:
                 continue
+            mine = [m for m in pending if m.preferred_robot in (None, r.id)]
+            if not mine:
+                continue
             need = min(
                 mission_cost(r.pos, self._station_pos(m.origin), self._station_pos(m.destination),
                              self.charger_bays[0], self.p.battery_per_cell)
-                for m in pending
+                for m in mine
             ) + BATTERY_RESERVE
             if r.battery < max(need, self.p.min_battery_to_assign):
                 cheapest[r.id] = r

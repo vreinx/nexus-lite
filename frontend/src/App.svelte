@@ -7,6 +7,12 @@
   import RobotList from './components/RobotList.svelte';
   import RobotDetail from './components/RobotDetail.svelte';
   import MissionPanel from './components/MissionPanel.svelte';
+  import HistoryView from './components/HistoryView.svelte';
+
+  // Navegación mínima por hash: #/ (planta) y #/historial
+  const VIEWS = { '': 'planta', historial: 'historial' };
+  const viewFromHash = () => VIEWS[location.hash.replace(/^#\/?/, '')] ?? 'planta';
+  let view = $state(viewFromHash());
 
   let mapError = $state('');
 
@@ -23,6 +29,9 @@
   onMount(() => {
     loadMapWithRetry();
     connect();
+    const onHash = () => (view = viewFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
   });
 </script>
 
@@ -34,9 +43,18 @@
       <div class="sub">Gestor de flota AMR · Prueba técnica para AND&amp;OR</div>
     </div>
   </div>
+  <nav>
+    <a href="#/" class:active={view === 'planta'}>Planta</a>
+    <a href="#/historial" class:active={view === 'historial'}>Historial</a>
+  </nav>
   <ConnectionBadge />
 </header>
 
+{#if view === 'historial'}
+  <main class="single">
+    {#if fleet.map}<HistoryView />{:else}<p class="muted">Cargando…</p>{/if}
+  </main>
+{:else}
 <main>
   <section class="left">
     <div class="card map-card">
@@ -55,6 +73,7 @@
     <MissionPanel />
   </aside>
 </main>
+{/if}
 
 <style>
   header {
@@ -67,6 +86,12 @@
     border-bottom: 3px solid var(--brand);
   }
   .brand { display: flex; gap: 12px; align-items: center; }
+  header { gap: 20px; }
+  nav { display: flex; gap: 4px; margin-right: auto; margin-left: 24px; }
+  nav a { color: #cfe3d9; text-decoration: none; padding: 6px 14px; border-radius: 6px; font-weight: 500; }
+  nav a:hover { background: rgba(255, 255, 255, 0.08); }
+  nav a.active { background: var(--brand); color: #fff; }
+  main.single { display: block; }
   .name { font-size: 19px; letter-spacing: 0.06em; line-height: 1.1; }
   .name strong { font-weight: 800; }
   .lite { font-weight: 300; margin-left: 5px; color: #a9d1bd; }

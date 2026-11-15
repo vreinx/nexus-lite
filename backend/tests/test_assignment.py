@@ -66,3 +66,13 @@ def test_excluye_robot_sin_bateria_para_terminar_y_volver_a_cargar():
     plan_ = plan_assignments(ms, [justo, sobrado], POS.__getitem__, 30,
                              charger=(10, 0), per_cell=0.5, reserve=5)
     assert [(m.id, r.id) for m, r in plan_] == [("larga", "sobrado")]
+
+
+def test_mision_reenviada_a_un_robot_concreto_solo_la_hace_ese():
+    m = mission("m1", origin="P1")
+    m.preferred_robot = "lejos"
+    robots = [Robot("cerca", 0, 2), Robot("lejos", 19, 11)]
+    assert plan([m], robots) == [("m1", "lejos")]
+    # Si ese robot no está libre, la misión espera (no la coge otro)
+    robots[1].state = RobotState.TO_DROP
+    assert plan([m], robots) == []

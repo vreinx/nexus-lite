@@ -60,6 +60,9 @@ def plan_assignments(
             break
         origin, dest = station_pos(mission.origin), station_pos(mission.destination)
         capable = free
+        if mission.preferred_robot:
+            # Reenvío a un robot concreto: espera a que ese robot quede libre.
+            capable = [r for r in capable if r.id == mission.preferred_robot]
         if charger is not None:
             capable = [r for r in free
                        if r.battery - mission_cost(r.pos, origin, dest, charger, per_cell) >= reserve]

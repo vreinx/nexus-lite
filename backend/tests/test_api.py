@@ -102,3 +102,47 @@ def test_telemetria_de_robot(client):
     assert set(puntos[0]) == {"time", "x", "y", "battery", "state"}
     assert client.get("/api/v1/robots/R9/telemetry").status_code == 404
     assert client.get("/api/v1/robots/R1/telemetry", params={"minutes": 0}).status_code == 422
+
+
+# ---------------------------------------------------------------- historial
+def test_historial_filtros_y_paginacion(client):
+    ids = {}
+    for o, d, p in [("P1", "D1", 1), ("P2", "D2", 2), ("P1", "D2", 3), ("P3", "D1", 1)]:
+        ids[(o, d, p)] = crear(client, o, d, p).json()["id"]
+    client.post(f"/api/v1/missions/{ids[('P1', 'D2', 3)]}/cancel")
+
+    def get(**params):
+        r = client.get("/api/v1/missions", params=params)
+        assert r.status_code == 200
+        return r.json(), int(r.headers["X-Total-Count"])
+
+    assert get(origin="P1")[1] == 2
+    assert get(destination="D1", priority=1)[1] == 2
+    assert get(state=["PENDING", "CANCELLED"])[1] == 4
+    assert get(state="CANCELLED")[0][0]["origin"] == "P1"
+    assert get(id_prefix=ids[("P2", "D2", 2)][:8])[0][0]["destination"] == "D2"
+
+    pagina1, total = get(limit=3, offset=0)
+    pagina2, _ = get(limit=3, offset=3)
+    assert total == 4 and len(pagina1) == 3 and len(pagina2) == 1
+    assert {m["id"] for m in pagina1 + pagina2} == set(ids.values())
+
+    assert client.get("/api/v1/missions", params={"priority": 7}).status_code == 422
+    assert client.get("/api/v1/missions", params={
+        "created_from": "2030-01-02T00:00:00Z", "created_to": "2030-01-01T00:00:00Z"}).status_code == 422
+
+
+def test_reenviar_mision_cancelada(client):
+    original = crear(client, "P2", "D1", 1).json()["id"]
+    assert client.post(f"/api/v1/missions/{original}/retry").status_code == 409   # aún PENDING
+    client.post(f"/api/v1/missions/{original}/cancel")
+
+    r = client.post(f"/api/v1/missions/{original}/retry", json={"robot_id": "R3"})
+    assert r.status_code == 201
+    nueva = r.json()
+    assert nueva["retry_of"] == original and nueva["preferred_robot"] == "R3"
+    assert nueva["state"] == "PENDING" and (nueva["origin"], nueva["destination"]) == ("P2", "D1")
+    assert client.get(f"/api/v1/missions/{original}").json()["state"] == "CANCELLED"   # intacta
+
+    assert client.post(f"/api/v1/missions/{original}/retry", json={"robot_id": "R9"}).status_code == 422
+    assert client.post("/api/v1/missions/no-existe/retry").status_code == 404

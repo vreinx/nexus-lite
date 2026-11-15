@@ -15,6 +15,7 @@ export const fleet = $state({
   retryIn: 0,          // segundos hasta el próximo intento
   selectedRobot: null,
   lastUpdate: null,
+  missionsVersion: 0,  // se incrementa cuando llegan cambios de misiones (el historial se refresca)
 });
 
 // Colores de estado armonizados con el verde corporativo (CHARGING = verde marca).
@@ -60,6 +61,7 @@ function onMessage(event) {
   }
   applyRobots(msg.robots);
   applyMissions(msg.missions);
+  if (msg.missions.length) fleet.missionsVersion++;
   fleet.lastUpdate = new Date();
 }
 
@@ -100,7 +102,7 @@ export function reconnectNow() {
 }
 
 // ---------------------------------------------------------------- API REST
-async function request(method, url, body) {
+async function request(method, url, body, withResponse = false) {
   let res;
   try {
     res = await fetch(url, {
@@ -118,7 +120,7 @@ async function request(method, url, body) {
     const text = Array.isArray(d) ? d.map((e) => e.msg).join('; ') : d;
     throw new Error(text || `Error ${res.status}`);
   }
-  return data;
+  return withResponse ? { data, res } : data;
 }
 
 export async function loadMap() {
@@ -134,5 +136,30 @@ export async function createMission(origin, destination, priority) {
 export async function cancelMission(id) {
   const m = await request('POST', `/api/v1/missions/${id}/cancel`);
   applyMissions([m]);
+  return m;
+}
+
+// ------------------------------------------------------------ historial
+// filters: { states: [], robot_id, origin, destination, priority, created_from, created_to, id_prefix }
+export async function fetchMissions(filters, limit, offset) {
+  const q = new URLSearchParams();
+  for (const st of filters.states ?? []) q.append('state', st);
+  for (const k of ['robot_id', 'origin', 'destination', 'priority', 'id_prefix']) {
+    if (filters[k]) q.set(k, filters[k]);
+  }
+  // Los <input type="datetime-local"> dan hora local sin zona: se pasan a ISO UTC
+  for (const k of ['created_from', 'created_to']) {
+    if (filters[k]) q.set(k, new Date(filters[k]).toISOString());
+  }
+  q.set('limit', limit);
+  q.set('offset', offset);
+  const { data, res } = await request('GET', `/api/v1/missions?${q}`, undefined, true);
+  return { items: data, total: Number(res.headers.get('X-Total-Count') ?? data.length) };
+}
+
+export async function retryMission(id, robotId) {
+  const m = await request('POST', `/api/v1/missions/${id}/retry`, { robot_id: robotId || null });
+  applyMissions([m]);
+  fleet.missionsVersion++;
   return m;
 }
