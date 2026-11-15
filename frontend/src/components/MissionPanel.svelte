@@ -20,6 +20,8 @@
   let destination = $state('D1');
   let priority = $state(2);
   let filter = $state('ACTIVE');
+  let robotFilter = $state('');
+  let robotIds = $derived(Object.keys(fleet.robots).sort());
   let error = $state('');
   let sending = $state(false);
 
@@ -27,6 +29,7 @@
     let list = Object.values(fleet.missions);
     if (filter === 'ACTIVE') list = list.filter((m) => ACTIVE.includes(m.state));
     else if (filter !== 'ALL') list = list.filter((m) => m.state === filter);
+    if (robotFilter) list = list.filter((m) => m.robot_id === robotFilter || m.preferred_robot === robotFilter);
     // Activas: por prioridad y antigüedad (el orden en que se asignan). Resto: más recientes primero.
     return list.sort((a, b) => {
       const aa = ACTIVE.includes(a.state), ba = ACTIVE.includes(b.state);
@@ -95,6 +98,10 @@
 <div class="card">
   <div class="list-head">
     <h2>Misiones</h2>
+    <select bind:value={robotFilter} aria-label="Filtrar por robot">
+      <option value="">Todos los robots</option>
+      {#each robotIds as r}<option value={r}>{r}</option>{/each}
+    </select>
     <select bind:value={filter} aria-label="Filtrar misiones">
       <option value="ACTIVE">Activas</option>
       <option value="ALL">Todas</option>
@@ -105,7 +112,7 @@
   </div>
 
   {#if missions.length === 0}
-    <p class="muted">No hay misiones{filter === 'ACTIVE' ? ' activas' : ''}.</p>
+    <p class="muted">No hay misiones{filter === 'ACTIVE' ? ' activas' : ''}{robotFilter ? ` de ${robotFilter}` : ''}.</p>
   {:else}
     <ul>
       {#each missions as m (m.id)}
@@ -138,7 +145,8 @@
   .error { color: var(--danger); margin: 10px 0 0; font-size: 13px; }
 
   .list-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-  .list-head h2 { margin: 0; }
+  .list-head h2 { margin: 0; margin-right: auto; }
+  .list-head { gap: 6px; }
   ul { list-style: none; margin: 0; padding: 0; max-height: 460px; overflow-y: auto; }
   li { padding: 8px 0; border-top: 1px solid var(--border); }
   .row { display: flex; align-items: center; gap: 8px; }

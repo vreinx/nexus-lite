@@ -73,6 +73,36 @@ class FleetSimulator:
         self._dirty_robots: set[str] = set()
         self._dirty_missions: set[str] = set()
 
+    # ------------------------------------------------------------------- robots
+    def restore_robots(self, saved: dict[str, dict]) -> list[str]:
+        """Restaura posición, batería y estado guardados tras un reinicio.
+
+        - Los robots en ERROR siguen en ERROR (reiniciar el software no los arregla).
+        - Si estaba en una plaza de C1 sin terminar de cargar, sigue cargando.
+        - El resto arranca IDLE donde estaba (luego irá a su parking o a cargar).
+        - Si la posición guardada ya no es válida (mapa cambiado, fuera de la
+          cuadrícula o celda repetida), se queda con la del fichero de configuración.
+        Devuelve los ids de los robots que se han restaurado.
+        """
+        used: set[Pos] = set()
+        restored = []
+        for r in sorted(self.robots.values(), key=lambda r: r.id):
+            s = saved.get(r.id)
+            if s is not None:
+                pos = (int(s["x"]), int(s["y"]))
+                if self._in_grid(pos) and pos not in used:
+                    r.x, r.y = pos
+                    r.battery = max(0.0, min(100.0, float(s["battery"])))
+                    if s.get("state") == RobotState.ERROR.value:
+                        r.state = RobotState.ERROR
+                    elif pos in self.charger_bays and r.battery < self.p.charge_target:
+                        r.state, r.target = RobotState.TO_CHARGER, pos
+                        self.charger_slots[r.id] = pos      # llega en el primer tick -> CHARGING
+                    restored.append(r.id)
+            used.add(r.pos)
+            self._touch_robot(r)
+        return restored
+
     # ------------------------------------------------------------------ misiones
     def add_mission(self, m: Mission) -> None:
         origin = self.cfg.station(m.origin)
@@ -92,6 +122,10 @@ class FleetSimulator:
         """Deshace un add_mission (si no se pudo guardar en base de datos)."""
         self.missions.pop(mission_id, None)
         self._dirty_missions.discard(mission_id)
+
+    def mark_robots_dirty(self, robot_ids) -> None:
+        """Vuelve a marcar robots para guardarlos (si falló la escritura)."""
+        self._dirty_robots.update(i for i in robot_ids if i in self.robots)
 
     def mark_missions_dirty(self, mission_ids) -> None:
         """Vuelve a marcar misiones para guardarlas (si falló la escritura)."""
@@ -362,7 +396,7 @@ class FleetSimulator:
     def _update_charger_queue(self) -> None:
         # 1) Plazas libres para los primeros de la cola, en orden de llegada.
         while self.charger_queue:
-            bay = self._free_bay(self.robots[self.charger_queue[0]].pos)
+            bay = self._free_bay(self.robots[self.charger_queue[0]].pos, self.charger_queue[0])
             if bay is None:
                 break
             r = self.robots[self.charger_queue.popleft()]
@@ -397,11 +431,11 @@ class FleetSimulator:
             r.blocked_ticks = 0
             self._touch_robot(r)
 
-    def _free_bay(self, near: Pos) -> Pos | None:
+    def _free_bay(self, near: Pos, for_robot: str | None = None) -> Pos | None:
         taken = set(self.charger_slots.values())
-        # Una plaza con un robot parado encima (p. ej. en ERROR) no sirve.
+        # Una plaza con otro robot parado encima (p. ej. en ERROR) no sirve.
         blocked = {r.pos for r in self.robots.values() if r.id not in self.charger_slots
-                   and not self._is_travelling(r)}
+                   and r.id != for_robot and not self._is_travelling(r)}
         free = [b for b in self.charger_bays if b not in taken and b not in blocked]
         return min(free, key=lambda b: (manhattan(near, b), b)) if free else None
 

@@ -86,3 +86,51 @@ def test_si_influx_falla_la_simulacion_sigue():
         return list(service.sim.missions.values())[0]
 
     assert asyncio.run(scenario()).state == MissionState.ASSIGNED
+
+
+# ------------------------------------------------- estado de robots al reiniciar
+def _run(service, coro_fn):
+    async def scenario():
+        await service.start(run_loop=False)
+        return await coro_fn()
+    return asyncio.run(scenario())
+
+
+def test_reinicio_conserva_posicion_y_bateria_de_los_robots():
+    repo = InMemoryMissionRepository()           # la "base de datos" sobrevive al reinicio
+    cfg = build_sim().cfg
+
+    antes = FleetService(cfg, repo)
+    async def trabajar():
+        await antes.create_mission("P1", "D1", 1)
+        for _ in range(15):
+            await antes.step()
+        return {r.id: (r.pos, r.battery) for r in antes.sim.robots.values()}
+    estado = _run(antes, trabajar)
+    assert any(b < 100 for _, b in estado.values())        # alguien ha gastado batería
+
+    despues = FleetService(cfg, repo)                       # "reinicio" del backend
+    async def nada():
+        return {r.id: (r.pos, r.battery) for r in despues.sim.robots.values()}
+    assert _run(despues, nada) == estado
+
+
+def test_reinicio_robot_en_error_sigue_en_error_y_el_que_cargaba_sigue_cargando():
+    from app.domain.models import RobotState
+    repo = InMemoryMissionRepository()
+    repo.robots = {
+        "R1": {"_id": "R1", "x": 3, "y": 3, "battery": 0.0, "state": "ERROR"},
+        "R2": {"_id": "R2", "x": 10, "y": 0, "battery": 40.0, "state": "CHARGING"},   # plaza de C1
+        "R3": {"_id": "R3", "x": 50, "y": 50, "battery": 70.0, "state": "IDLE"},      # fuera del mapa
+    }
+    service = FleetService(build_sim().cfg, repo)
+
+    async def dos_ticks():
+        await service.step()      # R2 "llega" a su plaza -> CHARGING
+        await service.step()      # y empieza a sumar batería
+        return service.sim.robots
+
+    robots = _run(service, dos_ticks)
+    assert robots["R1"].state == RobotState.ERROR and robots["R1"].pos == (3, 3)
+    assert robots["R2"].state == RobotState.CHARGING and robots["R2"].battery > 40
+    assert robots["R3"].pos == (8, 6) and robots["R3"].battery == 100   # posición de map.json

@@ -78,14 +78,20 @@ class FleetService:
             await self.telemetry.close()
 
     async def restore(self) -> None:
-        """B-06: recupera las misiones activas tras un reinicio.
+        """B-06: recupera el estado tras un reinicio.
 
-        El simulador arranca de cero (robots en su posición inicial), así que
-        no sabemos dónde estaba cada robot ni si llevaba carga. Las misiones
-        ASSIGNED e IN_PROGRESS vuelven a PENDING y se reasignan. Ninguna se
-        pierde. En una planta real habría que reconciliar con el estado que
-        reporta cada robot antes de decidir.
+        Robots: vuelven a la posición, batería y estado guardados en Mongo
+        (ver FleetSimulator.restore_robots).
+        Misiones: las ASSIGNED e IN_PROGRESS vuelven a PENDING y se reasignan;
+        ninguna se pierde. Como el robot sigue donde estaba, lo normal es que
+        la vuelva a coger él (es el más cercano). En una planta real habría que
+        reconciliar con lo que reporta cada robot (p. ej. si lleva la carga).
         """
+        restored_robots = self.sim.restore_robots(await self.repo.load_robots())
+        robots, _ = self.sim.drain_changes()
+        await self.repo.save_robots(robots)
+        log.info("Reinicio: %d robots restaurados desde la base de datos", len(restored_robots))
+
         active = sorted(await self.repo.list_active(), key=lambda m: m.created_at)
         invalid: list[Mission] = []
         for m in active:
@@ -120,6 +126,7 @@ class FleetService:
             self.sim.tick()
             robots, missions = self.sim.drain_changes()
             await self._persist(missions)
+            await self._persist_robots(robots)
             await self._notify(robots, missions)
             # Copia del estado de todos los robots para la telemetría
             snapshot = [replace(r) for r in self.sim.robots.values()]
@@ -141,6 +148,14 @@ class FleetService:
             if self._telemetry_ok:
                 log.exception("No se pudo escribir la telemetría en InfluxDB")
             self._telemetry_ok = False
+
+    async def _persist_robots(self, robots: list[Robot]) -> None:
+        try:
+            await self.repo.save_robots(robots)
+        except Exception:
+            # Si Mongo falla, se reintenta en el siguiente tick.
+            log.exception("No se pudo guardar el estado de %d robots; se reintentará", len(robots))
+            self.sim.mark_robots_dirty(r.id for r in robots)
 
     async def _persist(self, missions: list[Mission]) -> None:
         try:
