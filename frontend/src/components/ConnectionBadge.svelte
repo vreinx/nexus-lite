@@ -29,11 +29,11 @@
     background: rgba(255, 255, 255, 0.08);
   }
   .dot { width: 10px; height: 10px; border-radius: 50%; }
-  .online .dot { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.3); }
-  .connecting .dot { background: #f59e0b; animation: blink 1s infinite; }
-  .offline { background: rgba(220, 38, 38, 0.25); }
-  .offline .dot { background: #ef4444; }
-  .retry { color: #fca5a5; }
+  .online .dot { background: #8fd1b0; box-shadow: 0 0 0 3px rgba(143, 209, 176, 0.3); }
+  .connecting .dot { background: #e0a458; animation: blink 1s infinite; }
+  .offline { background: rgba(209, 73, 91, 0.3); }
+  .offline .dot { background: #f08a97; }
+  .retry { color: #f6c1c8; }
   button { padding: 2px 10px; font-size: 12px; }
   @keyframes blink { 50% { opacity: 0.3; } }
 </style>

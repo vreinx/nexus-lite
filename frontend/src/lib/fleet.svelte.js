@@ -17,16 +17,19 @@ export const fleet = $state({
   lastUpdate: null,
 });
 
+// Colores de estado armonizados con el verde corporativo (CHARGING = verde marca).
 export const ROBOT_COLORS = {
-  IDLE: '#94a3b8',
-  TO_PICKUP: '#3b82f6',
-  LOADING: '#6366f1',
-  TO_DROP: '#f59e0b',
-  UNLOADING: '#f97316',
-  TO_CHARGER: '#14b8a6',
-  CHARGING: '#22c55e',
-  ERROR: '#ef4444',
+  IDLE: '#9aa8a1',
+  TO_PICKUP: '#4a90a4',
+  LOADING: '#6f7fc0',
+  TO_DROP: '#e0a458',
+  UNLOADING: '#d9824f',
+  TO_CHARGER: '#5fb3a1',
+  CHARGING: '#6ca087',
+  ERROR: '#d1495b',
 };
+
+export const batteryColor = (b) => (b < 20 ? '#d1495b' : b < 30 ? '#e0a458' : '#6ca087');
 
 let ws = null;
 let backoff = 1000;

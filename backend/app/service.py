@@ -8,6 +8,7 @@
 import asyncio
 import logging
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
@@ -15,10 +16,13 @@ from app.domain.models import Mission, MissionState, Robot
 from app.domain.simulator import FleetSimulator, MissionError
 from app.map_config import MapConfig
 from app.repository import MissionRepository
+from app.telemetry import TelemetryStore
 
 log = logging.getLogger("nexus.service")
 
 Notifier = Callable[[list[Robot], list[Mission]], Awaitable[None]]
+
+TELEMETRY_TIMEOUT_S = 2.0
 
 
 class RepositoryUnavailable(Exception):
@@ -30,9 +34,13 @@ def _utcnow() -> datetime:
 
 
 class FleetService:
-    def __init__(self, cfg: MapConfig, repo: MissionRepository, clock: Callable[[], datetime] = _utcnow):
+    def __init__(self, cfg: MapConfig, repo: MissionRepository,
+                 telemetry: TelemetryStore | None = None,
+                 clock: Callable[[], datetime] = _utcnow):
         self.sim = FleetSimulator(cfg, clock)
         self.repo = repo
+        self.telemetry = telemetry
+        self._telemetry_ok = True
         self.clock = clock
         self._lock = asyncio.Lock()
         self._task: asyncio.Task | None = None
@@ -66,6 +74,8 @@ class FleetService:
             except asyncio.CancelledError:
                 pass
         await self.repo.close()
+        if self.telemetry:
+            await self.telemetry.close()
 
     async def restore(self) -> None:
         """B-06: recupera las misiones activas tras un reinicio.
@@ -111,7 +121,26 @@ class FleetService:
             robots, missions = self.sim.drain_changes()
             await self._persist(missions)
             await self._notify(robots, missions)
+            # Copia del estado de todos los robots para la telemetría
+            snapshot = [replace(r) for r in self.sim.robots.values()]
+            ts = self.clock()
+        # B-05: fuera del candado, para que InfluxDB lento no frene el simulador
+        await self._write_telemetry(snapshot, ts)
         return robots, missions
+
+    async def _write_telemetry(self, robots: list[Robot], ts: datetime) -> None:
+        if not self.telemetry:
+            return
+        try:
+            await asyncio.wait_for(self.telemetry.write(robots, ts), TELEMETRY_TIMEOUT_S)
+            if not self._telemetry_ok:
+                log.info("Telemetría recuperada")
+            self._telemetry_ok = True
+        except Exception:
+            # Se pierde ese punto, pero la simulación sigue. Se avisa una sola vez.
+            if self._telemetry_ok:
+                log.exception("No se pudo escribir la telemetría en InfluxDB")
+            self._telemetry_ok = False
 
     async def _persist(self, missions: list[Mission]) -> None:
         try:

@@ -1,20 +1,25 @@
 {
   "grid": { "width": 20, "height": 12 },
   "stations": [
-    { "id": "P1", "type": "PICKUP",  "x": 0,  "y": 1 },
-    { "id": "P2", "type": "PICKUP",  "x": 0,  "y": 4 },
-    { "id": "P3", "type": "PICKUP",  "x": 0,  "y": 7 },
-    { "id": "P4", "type": "PICKUP",  "x": 0,  "y": 10 },
-    { "id": "D1", "type": "DROP",    "x": 19, "y": 3 },
-    { "id": "D2", "type": "DROP",    "x": 19, "y": 8 },
-    { "id": "C1", "type": "CHARGER", "x": 10, "y": 0, "capacity": 2, "queue": { "x": 10, "y": 1 } }
+    { "id": "P1",  "type": "PICKUP",  "x": 0,  "y": 1 },
+    { "id": "P2",  "type": "PICKUP",  "x": 0,  "y": 4 },
+    { "id": "P3",  "type": "PICKUP",  "x": 0,  "y": 7 },
+    { "id": "P4",  "type": "PICKUP",  "x": 0,  "y": 10 },
+    { "id": "D1",  "type": "DROP",    "x": 19, "y": 3 },
+    { "id": "D2",  "type": "DROP",    "x": 19, "y": 8 },
+    { "id": "C1",  "type": "CHARGER", "x": 10, "y": 0, "capacity": 2, "queue": { "x": 10, "y": 1 } },
+    { "id": "PK1", "type": "PARKING", "x": 6,  "y": 11 },
+    { "id": "PK2", "type": "PARKING", "x": 8,  "y": 11 },
+    { "id": "PK3", "type": "PARKING", "x": 10, "y": 11 },
+    { "id": "PK4", "type": "PARKING", "x": 12, "y": 11 },
+    { "id": "PK5", "type": "PARKING", "x": 14, "y": 11 }
   ],
   "robots": [
-    { "id": "R1", "x": 8,  "y": 11, "battery": 100 },
-    { "id": "R2", "x": 9,  "y": 11, "battery": 100 },
+    { "id": "R1", "x": 6,  "y": 11, "battery": 100 },
+    { "id": "R2", "x": 8,  "y": 11, "battery": 100 },
     { "id": "R3", "x": 10, "y": 11, "battery": 100 },
-    { "id": "R4", "x": 11, "y": 11, "battery": 100 },
-    { "id": "R5", "x": 12, "y": 11, "battery": 100 }
+    { "id": "R4", "x": 12, "y": 11, "battery": 100 },
+    { "id": "R5", "x": 14, "y": 11, "battery": 100 }
   ],
   "simulation": {
     "tick_seconds": 1.0,

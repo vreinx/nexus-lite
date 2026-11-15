@@ -137,7 +137,8 @@ def test_bateria_agotada_en_ruta_robot_error_y_mision_failed(make_sim):
 
 
 def test_drain_changes_devuelve_solo_lo_cambiado(make_sim):
-    sim = make_sim(robots=[{"id": "R1", "x": 0, "y": 1}, {"id": "R2", "x": 19, "y": 11}])
+    # R2 aparcado en PK1: no se mueve, no debe aparecer como cambiado
+    sim = make_sim(robots=[{"id": "R1", "x": 0, "y": 1}, {"id": "R2", "x": 6, "y": 11}])
     sim.drain_changes()
     sim.add_mission(mission("m1"))
     sim.tick()
@@ -145,3 +146,59 @@ def test_drain_changes_devuelve_solo_lo_cambiado(make_sim):
     assert [r.id for r in robots] == ["R1"]
     assert [m.id for m in missions] == ["m1"]
     assert sim.drain_changes() == ([], [])
+
+
+# ------------------------------------------------------------------ parkings
+def test_al_terminar_va_al_parking_libre_mas_cercano(make_sim):
+    # R1 hace P4 (0,10) -> D2 (19,8). El parking más cercano a D2 es PK5 (14,11).
+    sim = make_sim(robots=[{"id": "R1", "x": 0, "y": 10}])
+    sim.add_mission(mission("m1", "P4", "D2"))
+    r = sim.robots["R1"]
+    run_until(sim, lambda: sim.missions["m1"].state == MissionState.DONE)
+    assert r.state == RobotState.IDLE
+
+    sim.tick()
+    assert r.target == (14, 11)
+    run_until(sim, lambda: r.target is None)
+    assert r.pos == (14, 11) and r.state == RobotState.IDLE
+    assert sim.parking_at(r.pos) == "PK5"
+
+
+def test_no_comparten_parking(make_sim):
+    # Los dos fuera de parking y cerca de PK5: uno a PK5 y el otro al siguiente.
+    sim = make_sim(robots=[{"id": "R1", "x": 14, "y": 8}, {"id": "R2", "x": 15, "y": 8}])
+    sim.tick()
+    targets = {sim.robots["R1"].target, sim.robots["R2"].target}
+    assert targets == {(14, 11), (12, 11)}
+
+
+def test_parking_ocupado_no_se_elige(make_sim):
+    sim = make_sim(robots=[{"id": "R1", "x": 14, "y": 11}, {"id": "R2", "x": 14, "y": 8}])
+    sim.tick()
+    assert sim.robots["R1"].target is None          # ya aparcado en PK5
+    assert sim.robots["R2"].target == (12, 11)       # PK5 ocupado -> PK4
+
+
+def test_camino_del_parking_se_le_puede_asignar_mision(make_sim):
+    sim = make_sim(robots=[{"id": "R1", "x": 3, "y": 5}])
+    sim.tick()
+    r = sim.robots["R1"]
+    assert r.state == RobotState.IDLE and r.target == (6, 11)
+
+    sim.add_mission(mission("m1", "P2", "D1"))
+    sim.tick()
+    assert r.state == RobotState.TO_PICKUP and r.target == (0, 4)
+
+
+def test_sin_parkings_libres_se_queda_quieto(make_sim):
+    robots = [{"id": f"R{i}", "x": x, "y": 11} for i, x in enumerate([6, 8, 10, 12, 14], 1)]
+    robots.append({"id": "R6", "x": 3, "y": 3})
+    sim = make_sim(robots=robots)
+    sim.tick()
+    assert sim.robots["R6"].target is None and sim.robots["R6"].pos == (3, 3)
+
+
+def test_bateria_baja_va_a_cargar_antes_que_al_parking(make_sim):
+    sim = make_sim(robots=[{"id": "R1", "x": 3, "y": 5, "battery": 15}])
+    sim.tick()
+    assert sim.robots["R1"].state == RobotState.TO_CHARGER

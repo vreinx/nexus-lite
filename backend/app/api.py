@@ -79,6 +79,26 @@ async def list_robots(request: Request):
     return [RobotOut.of(r) for r in _service(request).list_robots()]
 
 
+@router.get("/robots/{robot_id}/telemetry", tags=["robots"],
+            responses={404: {"model": ErrorOut}, 503: {"model": ErrorOut}})
+async def robot_telemetry(
+    robot_id: str,
+    request: Request,
+    minutes: int = Query(default=10, ge=1, le=1440, description="Ventana hacia atrás"),
+    every: int = Query(default=5, ge=1, le=3600, description="Agregación en segundos"),
+):
+    """Histórico de posición, batería y estado del robot (InfluxDB)."""
+    service = _service(request)
+    if service.get_robot(robot_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "robot no encontrado")
+    if service.telemetry is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "telemetría no configurada")
+    try:
+        return await service.telemetry.history(robot_id, minutes, every)
+    except Exception:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "InfluxDB no disponible")
+
+
 @router.get("/robots/{robot_id}", response_model=RobotOut, tags=["robots"],
             responses={404: {"model": ErrorOut}})
 async def get_robot(robot_id: str, request: Request):

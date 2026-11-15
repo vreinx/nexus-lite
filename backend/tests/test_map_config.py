@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from app.main import create_app
 from app.map_config import MapConfig, load_map
 from app.repository import InMemoryMissionRepository
+from app.telemetry import InMemoryTelemetryStore
 
 MAP_FILE = Path(__file__).parent.parent / "config" / "map.json"
 
@@ -46,8 +47,21 @@ def test_falta_cargador_falla():
 
 
 def test_health_y_mapa():
-    app = create_app(InMemoryMissionRepository, run_simulation=False)
+    app = create_app(InMemoryMissionRepository, run_simulation=False, telemetry_factory=InMemoryTelemetryStore)
     with TestClient(app) as client:
         assert client.get("/health").json() == {"status": "ok"}
         body = client.get("/api/v1/map").json()
-        assert len(body["stations"]) == 7
+        assert len(body["stations"]) == 12
+
+
+def test_dos_estaciones_en_la_misma_celda_falla():
+    raw = _raw()
+    raw["stations"][1]["x"], raw["stations"][1]["y"] = raw["stations"][0]["x"], raw["stations"][0]["y"]
+    with pytest.raises(ValidationError, match="misma celda"):
+        MapConfig.model_validate(raw)
+
+
+def test_parkings_son_opcionales():
+    raw = _raw()
+    raw["stations"] = [s for s in raw["stations"] if s["type"] != "PARKING"]
+    assert MapConfig.model_validate(raw)

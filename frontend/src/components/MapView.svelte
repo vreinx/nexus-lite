@@ -1,20 +1,41 @@
 <script>
   // F-01: mapa 2D en SVG. Estaciones fijas + robots coloreados por estado.
-  import { fleet, ROBOT_COLORS } from '../lib/fleet.svelte.js';
+  import { fleet, ROBOT_COLORS, batteryColor } from '../lib/fleet.svelte.js';
+  import RobotIcon from './RobotIcon.svelte';
+  import MissionPopover from './MissionPopover.svelte';
 
-  const C = 40; // píxeles por celda
+  const C = 40;      // píxeles por celda
+  const MARGIN = 14; // margen alrededor del mapa para que no se corten los robots del borde
 
   const STATION_STYLE = {
-    PICKUP: { fill: '#dbeafe', stroke: '#3b82f6' },
-    DROP: { fill: '#dcfce7', stroke: '#16a34a' },
-    CHARGER: { fill: '#fef9c3', stroke: '#ca8a04' },
+    PICKUP: { fill: '#e1eef2', stroke: '#4a90a4' },
+    DROP: { fill: '#e7f1ec', stroke: '#3e7560' },
+    CHARGER: { fill: '#fbf0dc', stroke: '#c98a2e' },
+    PARKING: { fill: '#eef2f0', stroke: '#8a9a93', dash: '3 3', small: true },
   };
 
   let map = $derived(fleet.map);
   let width = $derived(map.grid.width * C);
   let height = $derived(map.grid.height * C);
 
-  // Si varios robots comparten celda, se separan un poco para que se vean todos.
+  // Orientación de cada robot: hacia donde va a moverse (primero X, luego Y,
+  // igual que el simulador). Si está parado conserva la última. Se acumula el
+  // ángulo por el camino más corto para que no dé la vuelta entera al girar.
+  const headings = {};
+  function heading(r) {
+    let target = null;
+    if (r.target) {
+      const [tx, ty] = r.target;
+      if (r.x !== tx) target = tx > r.x ? 0 : 180;
+      else if (r.y !== ty) target = ty > r.y ? 90 : -90;
+    }
+    const prev = headings[r.id] ?? -90; // al arrancar, mirando "hacia arriba"
+    if (target === null) return prev;
+    const delta = ((((target - prev) % 360) + 540) % 360) - 180;
+    return (headings[r.id] = prev + delta);
+  }
+
+  // Si varios robots comparten celda, se separan y se encogen un poco para que se vean todos.
   let robots = $derived.by(() => {
     const list = Object.values(fleet.robots).sort((a, b) => a.id.localeCompare(b.id));
     const byCell = {};
@@ -22,17 +43,36 @@
     return list.map((r) => {
       const group = byCell[`${r.x},${r.y}`];
       const i = group.indexOf(r);
-      const offset = (i - (group.length - 1) / 2) * 9;
-      return { ...r, px: r.x * C + C / 2 + offset, py: r.y * C + C / 2 };
+      const offset = (i - (group.length - 1) / 2) * 12;
+      const scale = group.length > 1 ? 0.75 : 1;
+      return { ...r, px: r.x * C + C / 2 + offset, py: r.y * C + C / 2, scale, angle: heading(r) };
     });
   });
 
   const center = (x) => x * C + C / 2;
+
+  // Crear orden haciendo clic en una estación de recogida
+  let picker = $state(null);
+  let pickerStyle = $derived.by(() => {
+    if (!picker) return '';
+    const W = width + 2 * MARGIN, H = height + 2 * MARGIN;
+    const top = ((picker.y * C + MARGIN) / H) * 100;
+    // Se abre al lado contrario del borde más cercano para no salirse del mapa
+    const side = picker.x < map.grid.width / 2
+      ? `left: ${(((picker.x + 1) * C + MARGIN + 6) / W) * 100}%;`
+      : `right: ${((W - (picker.x * C + MARGIN) + 6) / W) * 100}%;`;
+    const vertical = picker.y > map.grid.height / 2
+      ? `bottom: ${100 - ((picker.y + 1) * C + MARGIN) / H * 100}%;`
+      : `top: ${top}%;`;
+    return side + vertical;
+  });
+  const openPicker = (s) => (picker = picker?.id === s.id ? null : s);
   const select = (id) => (fleet.selectedRobot = fleet.selectedRobot === id ? null : id);
 </script>
 
 <div class="wrap" class:frozen={fleet.connection !== 'online'}>
-  <svg viewBox="0 0 {width} {height}" role="img" aria-label="Mapa de la planta">
+  <svg viewBox="{-MARGIN} {-MARGIN} {width + 2 * MARGIN} {height + 2 * MARGIN}" role="img" aria-label="Mapa de la planta">
+    <rect x="0" y="0" {width} {height} class="floor" onclick={() => (picker = null)} role="presentation" />
     <!-- Cuadrícula -->
     {#each { length: map.grid.width + 1 } as _, i}
       <line x1={i * C} y1="0" x2={i * C} y2={height} class="grid" />
@@ -49,9 +89,22 @@
               rx="4" fill="none" stroke={st.stroke} stroke-dasharray="4 3" />
         <text x={center(s.queue.x)} y={center(s.queue.y) + 4} class="queue-label">cola</text>
       {/if}
-      <rect x={s.x * C + 2} y={s.y * C + 2} width={C - 4} height={C - 4} rx="5"
-            fill={st.fill} stroke={st.stroke} stroke-width="2" />
-      <text x={center(s.x)} y={center(s.y) + 4} class="station-label" fill={st.stroke}>{s.id}</text>
+      {#if s.type === 'PICKUP'}
+        <rect x={s.x * C + 2} y={s.y * C + 2} width={C - 4} height={C - 4} rx="5"
+              fill={st.fill} stroke={st.stroke} stroke-width={picker?.id === s.id ? 3.5 : 2}
+              class="clickable" role="button" tabindex="0"
+              aria-label="Crear orden desde {s.id}"
+              onclick={() => openPicker(s)}
+              onkeydown={(e) => e.key === 'Enter' && openPicker(s)}>
+          <title>Clic para crear una orden desde {s.id}</title>
+        </rect>
+      {:else}
+        <rect x={s.x * C + 2} y={s.y * C + 2} width={C - 4} height={C - 4} rx="5"
+              fill={st.fill} stroke={st.stroke} stroke-width="2" stroke-dasharray={st.dash ?? 'none'} />
+      {/if}
+      <text x={center(s.x)} y={center(s.y) + 4} class="station-label" class:small={st.small}
+            pointer-events="none"
+            fill={st.stroke}>{s.id}</text>
     {/each}
 
     <!-- Ruta hasta el destino: en L, primero X y luego Y, como se mueve el robot -->
@@ -69,14 +122,25 @@
          onclick={() => select(r.id)} role="button" tabindex="0"
          onkeydown={(e) => e.key === 'Enter' && select(r.id)}>
         <title>{r.id} · {r.state} · {r.battery}%</title>
-        <circle r="14" fill={ROBOT_COLORS[r.state]} class="body" />
-        <text y="4" class="robot-label">{r.id}</text>
-        <rect x="-13" y="17" width="26" height="4" rx="2" fill="#e2e8f0" />
-        <rect x="-13" y="17" width={26 * r.battery / 100} height="4" rx="2"
-              fill={r.battery < 20 ? '#ef4444' : r.battery < 30 ? '#f59e0b' : '#22c55e'} />
+        <g style="transform: scale({r.scale})" class="scaler">
+          {#if fleet.selectedRobot === r.id}
+            <circle r="21" class="halo" />
+          {/if}
+          <RobotIcon state={r.state} angle={r.angle} />
+          <!-- etiqueta y batería no giran: siempre legibles -->
+          <rect x="-11" y="-27" width="22" height="11" rx="5.5" fill="#1e3b32" opacity="0.85" />
+          <text y="-18.5" class="robot-label">{r.id}</text>
+          <rect x="-12" y="17" width="24" height="3.5" rx="1.75" fill="#dce5e0" />
+          <rect x="-12" y="17" width={24 * r.battery / 100} height="3.5" rx="1.75"
+                fill={batteryColor(r.battery)} />
+        </g>
       </g>
     {/each}
   </svg>
+
+  {#if picker}
+    <MissionPopover station={picker} style={pickerStyle} onclose={() => (picker = null)} />
+  {/if}
 
   {#if fleet.connection !== 'online'}
     <div class="overlay">Sin conexión en tiempo real: el mapa puede no estar actualizado</div>
@@ -91,21 +155,27 @@
 
 <style>
   .wrap { position: relative; }
-  svg { width: 100%; height: auto; display: block; background: #f8fafc; border-radius: 6px; }
+  svg { width: 100%; height: auto; display: block; }
+  .floor { fill: #fafcfb; }
   .frozen svg { filter: grayscale(0.7); opacity: 0.7; }
-  .grid { stroke: #e2e8f0; stroke-width: 1; }
+  .grid { stroke: #e3eae6; stroke-width: 1; }
   .station-label { font-size: 13px; font-weight: 700; text-anchor: middle; }
-  .queue-label { font-size: 10px; text-anchor: middle; fill: #a16207; }
+  .station-label.small { font-size: 10px; }
+  .clickable { cursor: pointer; transition: stroke-width 0.15s; outline: none; }
+  .clickable:hover { stroke-width: 3.5; filter: brightness(0.97); }
+  .queue-label { font-size: 10px; text-anchor: middle; fill: #a06a1e; }
 
   /* El simulador avanza 1 celda/s: la transición de 1 s hace el movimiento continuo */
-  .robot { cursor: pointer; transition: transform 1s linear; }
-  .robot .body { stroke: #fff; stroke-width: 2; }
-  .robot.selected .body { stroke: #0f172a; stroke-width: 3; }
-  .robot-label { font-size: 10px; font-weight: 700; text-anchor: middle; fill: #fff; pointer-events: none; }
+  .robot { cursor: pointer; transition: transform 1s linear; outline: none; }
+  .scaler { transition: transform 0.3s; }
+  .halo { fill: rgba(108, 160, 135, 0.18); stroke: #3e7560; stroke-width: 2; stroke-dasharray: 4 3;
+          animation: spin 6s linear infinite; }
+  .robot-label { font-size: 8px; font-weight: 700; text-anchor: middle; fill: #fff; pointer-events: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 
   .overlay {
     position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    background: #dc2626; color: #fff; padding: 6px 14px; border-radius: 6px; font-size: 13px;
+    background: #c2414f; color: #fff; padding: 6px 14px; border-radius: 6px; font-size: 13px;
   }
   .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 11px; color: var(--muted); }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }

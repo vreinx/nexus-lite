@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { fleet, connect, loadMap } from './lib/fleet.svelte.js';
   import ConnectionBadge from './components/ConnectionBadge.svelte';
+  import Logo from './components/Logo.svelte';
   import MapView from './components/MapView.svelte';
   import RobotList from './components/RobotList.svelte';
   import RobotDetail from './components/RobotDetail.svelte';
@@ -27,8 +28,11 @@
 
 <header>
   <div class="brand">
-    <strong>NEXUS Lite</strong>
-    <span class="muted">Gestor de flota AMR</span>
+    <Logo />
+    <div class="titles">
+      <div class="name"><strong>NEXUS</strong><span class="lite">Lite</span></div>
+      <div class="sub">Gestor de flota AMR · Prueba técnica para AND&amp;OR</div>
+    </div>
   </div>
   <ConnectionBadge />
 </header>
@@ -58,12 +62,15 @@
     justify-content: space-between;
     align-items: center;
     padding: 12px 20px;
-    background: #0f172a;
+    background: var(--brand-deep);
     color: #fff;
+    border-bottom: 3px solid var(--brand);
   }
-  .brand { display: flex; gap: 12px; align-items: baseline; }
-  .brand strong { font-size: 18px; }
-  .brand .muted { color: #94a3b8; }
+  .brand { display: flex; gap: 12px; align-items: center; }
+  .name { font-size: 19px; letter-spacing: 0.06em; line-height: 1.1; }
+  .name strong { font-weight: 800; }
+  .lite { font-weight: 300; margin-left: 5px; color: #a9d1bd; }
+  .sub { font-size: 12px; color: #a9c2b6; }
 
   main {
     display: grid;

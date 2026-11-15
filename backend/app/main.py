@@ -10,6 +10,7 @@ from app.map_config import load_map
 from app.realtime import ConnectionManager, encode
 from app.repository import MissionRepository, MongoMissionRepository
 from app.service import FleetService
+from app.telemetry import InfluxTelemetryStore, TelemetryStore
 from app.settings import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -19,16 +20,23 @@ def _mongo_repo() -> MissionRepository:
     return MongoMissionRepository(settings.mongo_url, settings.mongo_db)
 
 
+def _influx() -> TelemetryStore:
+    return InfluxTelemetryStore(settings.influx_url, settings.influx_token,
+                                settings.influx_org, settings.influx_bucket)
+
+
 def create_app(
     repository_factory: Callable[[], MissionRepository] = _mongo_repo,
     run_simulation: bool = True,
+    telemetry_factory: Callable[[], TelemetryStore] | None = _influx,
 ) -> FastAPI:
     """Los tests pasan un repositorio en memoria y desactivan el bucle."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.map = load_map(settings.map_file)
-        app.state.service = FleetService(app.state.map, repository_factory())
+        telemetry = telemetry_factory() if telemetry_factory else None
+        app.state.service = FleetService(app.state.map, repository_factory(), telemetry)
         app.state.service.notify = app.state.ws_clients.broadcast
         await app.state.service.start(run_loop=run_simulation)
         yield

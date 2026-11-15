@@ -54,3 +54,35 @@ def test_tras_reiniciar_se_reasignan():
         return await repo.get("en_curso")
 
     assert asyncio.run(scenario()).state == MissionState.ASSIGNED
+
+
+def test_cada_tick_escribe_telemetria_de_todos_los_robots():
+    from app.telemetry import InMemoryTelemetryStore
+    telemetry = InMemoryTelemetryStore()
+    service = FleetService(build_sim().cfg, InMemoryMissionRepository(), telemetry)
+
+    async def scenario():
+        await service.start(run_loop=False)
+        await service.step()
+        await service.step()
+
+    asyncio.run(scenario())
+    assert len(telemetry.points) == 2 * 5
+    assert {p["robot_id"] for p in telemetry.points} == {"R1", "R2", "R3", "R4", "R5"}
+
+
+def test_si_influx_falla_la_simulacion_sigue():
+    class Rota:
+        async def write(self, robots, ts): raise ConnectionError("influx caído")
+        async def history(self, *a): return []
+        async def close(self): pass
+
+    service = FleetService(build_sim().cfg, InMemoryMissionRepository(), Rota())
+
+    async def scenario():
+        await service.start(run_loop=False)
+        await service.create_mission("P1", "D1", 1)
+        await service.step()
+        return list(service.sim.missions.values())[0]
+
+    assert asyncio.run(scenario()).state == MissionState.ASSIGNED

@@ -4,6 +4,9 @@ Orden dentro de un tick:
   1. Cada robot avanza según su estado (moverse, cargar/descargar, cargar batería).
   2. B-03: los robots libres con batería baja se mandan a C1 (o a su cola).
   3. B-02: se asignan las misiones pendientes a los robots libres.
+  4. Parkings: los robots libres sin destino van al parking libre más cercano.
+     Siguen en IDLE mientras van, así que se les puede asignar una misión por
+     el camino (el paso 3 de un tick posterior les cambia el destino).
 
 Ciclo de una misión:
   PENDING -> ASSIGNED (robot va a recoger) -> IN_PROGRESS (robot llega y empieza
@@ -13,7 +16,7 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Callable
 
-from app.domain.assignment import plan_assignments
+from app.domain.assignment import manhattan, plan_assignments
 from app.domain.models import (
     PRIORITY_MAX,
     PRIORITY_MIN,
@@ -54,6 +57,10 @@ class FleetSimulator:
         self.charger_queue_pos: Pos | None = (charger.queue.x, charger.queue.y) if charger.queue else None
         self.charger_slots: set[str] = set()
         self.charger_queue: deque[str] = deque()
+
+        self.parkings: list[tuple[str, Pos]] = [
+            (s.id, (s.x, s.y)) for s in cfg.stations_of(StationType.PARKING)
+        ]
 
         self._dirty_robots: set[str] = set()
         self._dirty_missions: set[str] = set()
@@ -110,6 +117,7 @@ class FleetSimulator:
             self._step(r)
         self._send_low_battery_to_charger()
         self._assign()
+        self._send_idle_to_parking()
 
     def drain_changes(self) -> tuple[list[Robot], list[Mission]]:
         """Robots y misiones que han cambiado desde la última llamada."""
@@ -121,7 +129,7 @@ class FleetSimulator:
 
     # ------------------------------------------------------------- comportamiento
     def _step(self, r: Robot) -> None:
-        if r.state in MOVING:
+        if r.state in MOVING or (r.state == RobotState.IDLE and r.target):
             if r.pos != r.target:
                 self._move(r)
                 if r.state == RobotState.ERROR:
@@ -156,7 +164,9 @@ class FleetSimulator:
             self._fail_robot(r, "batería agotada en ruta")
 
     def _arrive(self, r: Robot) -> None:
-        if r.state == RobotState.TO_PICKUP:
+        if r.state == RobotState.IDLE:
+            r.target = None  # aparcado
+        elif r.state == RobotState.TO_PICKUP:
             r.state, r.timer = RobotState.LOADING, self.p.load_seconds
             m = self.missions[r.mission_id]
             m.state = MissionState.IN_PROGRESS
@@ -214,6 +224,38 @@ class FleetSimulator:
             r = self.robots[self.charger_queue.popleft()]
             self.charger_slots.add(r.id)
             r.target = self.charger_pos
+            self._touch_robot(r)
+
+    # ------------------------------------------------------------------ parkings
+    def parking_at(self, pos: Pos) -> str | None:
+        return next((pid for pid, ppos in self.parkings if ppos == pos), None)
+
+    def _send_idle_to_parking(self) -> None:
+        if not self.parkings:
+            return
+        idle = [r for r in self.robots.values() if r.state == RobotState.IDLE]
+        parking_cells = {ppos for _, ppos in self.parkings}
+
+        # Ocupados: robots ya aparcados (IDLE, sin destino, en un parking)
+        occupied = {r.pos for r in idle if r.target is None and r.pos in parking_cells}
+        # Reservados: robots que ya van hacia un parking. Si su parking se ha
+        # ocupado entretanto (o lo comparte con otro), se le busca otro.
+        for r in sorted(idle, key=lambda r: r.id):
+            if r.target is not None:
+                if r.target in occupied:
+                    r.target = None
+                else:
+                    occupied.add(r.target)
+
+        # Sin destino y fuera de un parking: al parking libre más cercano.
+        homeless = [r for r in idle if r.target is None and r.pos not in parking_cells]
+        for r in sorted(homeless, key=lambda r: r.id):
+            free = [(pid, ppos) for pid, ppos in self.parkings if ppos not in occupied]
+            if not free:
+                return  # sin hueco: se quedan donde están y se reintenta el siguiente tick
+            _, ppos = min(free, key=lambda p: (manhattan(r.pos, p[1]), p[0]))
+            occupied.add(ppos)
+            r.target = ppos
             self._touch_robot(r)
 
     # ---------------------------------------------------------------------- B-02

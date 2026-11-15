@@ -15,6 +15,11 @@ class StationType(str, Enum):
     PICKUP = "PICKUP"
     DROP = "DROP"
     CHARGER = "CHARGER"
+    PARKING = "PARKING"
+
+
+# Tipos obligatorios en cualquier mapa (los parkings son opcionales).
+REQUIRED_STATION_TYPES = (StationType.PICKUP, StationType.DROP, StationType.CHARGER)
 
 
 class Cell(BaseModel):
@@ -67,6 +72,11 @@ class MapConfig(BaseModel):
         if dup:
             raise ValueError(f"ids repetidos: {sorted(dup)}")
 
+        cells = [(s.x, s.y) for s in self.stations]
+        dup_cells = {c for c in cells if cells.count(c) > 1}
+        if dup_cells:
+            raise ValueError(f"varias estaciones en la misma celda: {sorted(dup_cells)}")
+
         for s in self.stations:
             inside(s, s.id)
             if s.queue:
@@ -74,9 +84,11 @@ class MapConfig(BaseModel):
         for r in self.robots:
             inside(r, r.id)
 
-        for t in StationType:
+        for t in REQUIRED_STATION_TYPES:
             if not any(s.type == t for s in self.stations):
                 raise ValueError(f"falta al menos una estación {t.value}")
+        if len(self.stations_of(StationType.CHARGER)) != 1:
+            raise ValueError("debe haber exactamente un CHARGER")
         return self
 
     # Accesos de conveniencia

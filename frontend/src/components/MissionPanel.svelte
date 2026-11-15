@@ -3,12 +3,12 @@
   import { fleet, createMission, cancelMission } from '../lib/fleet.svelte.js';
 
   const MISSION_COLORS = {
-    PENDING: '#64748b',
-    ASSIGNED: '#3b82f6',
-    IN_PROGRESS: '#f59e0b',
-    DONE: '#16a34a',
-    CANCELLED: '#94a3b8',
-    FAILED: '#dc2626',
+    PENDING: '#8a9a93',
+    ASSIGNED: '#4a90a4',
+    IN_PROGRESS: '#d4903f',
+    DONE: '#4f9a77',
+    CANCELLED: '#b3bdb8',
+    FAILED: '#c2414f',
   };
   const ACTIVE = ['PENDING', 'ASSIGNED', 'IN_PROGRESS'];
   const CANCELLABLE = ['PENDING', 'ASSIGNED'];
@@ -145,9 +145,9 @@
   .row strong { flex: 1; }
   .meta { font-size: 12px; margin-top: 3px; }
   .prio { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
-  .p1 { background: #fee2e2; color: #b91c1c; }
-  .p2 { background: #fef3c7; color: #b45309; }
-  .p3 { background: #e0f2fe; color: #0369a1; }
+  .p1 { background: #f8e1e3; color: #a3313e; }
+  .p2 { background: #fbefd9; color: #9a6418; }
+  .p3 { background: #e1eef2; color: #2f6e80; }
   button.small { padding: 2px 8px; font-size: 12px; }
   button.link { border: none; background: none; padding: 0; color: var(--accent); text-decoration: underline; }
 </style>

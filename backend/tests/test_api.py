@@ -4,11 +4,12 @@ from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.repository import InMemoryMissionRepository
+from app.telemetry import InMemoryTelemetryStore
 
 
 @pytest.fixture
 def client():
-    app = create_app(InMemoryMissionRepository, run_simulation=False)
+    app = create_app(InMemoryMissionRepository, run_simulation=False, telemetry_factory=InMemoryTelemetryStore)
     with TestClient(app) as c:
         yield c
 
@@ -89,3 +90,15 @@ def test_websocket_snapshot_y_updates(client):
         client.post(f"/api/v1/missions/{otra}/cancel")
         upd = ws.receive_json()
         assert upd["missions"][0]["state"] == "CANCELLED"
+
+
+def test_telemetria_de_robot(client):
+    service = client.app.state.service
+    # Simulamos dos ticks a mano (el bucle está desactivado en los tests)
+    client.portal.call(service.step)
+    client.portal.call(service.step)
+    puntos = client.get("/api/v1/robots/R1/telemetry").json()
+    assert len(puntos) == 2
+    assert set(puntos[0]) == {"time", "x", "y", "battery", "state"}
+    assert client.get("/api/v1/robots/R9/telemetry").status_code == 404
+    assert client.get("/api/v1/robots/R1/telemetry", params={"minutes": 0}).status_code == 422
