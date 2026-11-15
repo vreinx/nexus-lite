@@ -12,7 +12,17 @@
   const EMPTY = { states: [], robot_id: '', origin: '', destination: '', priority: '',
                   created_from: '', created_to: '', id_prefix: '' };
 
-  let filters = $state({ ...EMPTY, states: [] });
+  // Filtros iniciales desde el enlace, p. ej. #/historial?robot_id=R1&state=DONE
+  function filtersFromHash() {
+    const q = new URLSearchParams(location.hash.split('?')[1] ?? '');
+    const f = { ...EMPTY, states: q.getAll('state').filter((s) => STATES.includes(s)) };
+    for (const k of ['robot_id', 'origin', 'destination', 'priority', 'id_prefix']) {
+      if (q.get(k)) f[k] = q.get(k);
+    }
+    return f;
+  }
+
+  let filters = $state(filtersFromHash());
   let page = $state(0);
   let items = $state([]);
   let total = $state(0);
@@ -269,7 +279,9 @@
   </div>
 {/if}
 
-<svelte:window onkeydown={(e) => e.key === 'Escape' && (retrying = null)} />
+<svelte:window
+  onkeydown={(e) => e.key === 'Escape' && (retrying = null)}
+  onhashchange={() => location.hash.includes('?') && (filters = filtersFromHash())} />
 
 <style>
   .card + .card { margin-top: 16px; }

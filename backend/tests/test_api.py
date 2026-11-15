@@ -146,3 +146,18 @@ def test_reenviar_mision_cancelada(client):
 
     assert client.post(f"/api/v1/missions/{original}/retry", json={"robot_id": "R9"}).status_code == 422
     assert client.post("/api/v1/missions/no-existe/retry").status_code == 404
+
+
+def test_historial_por_robot_y_estado(client):
+    service = client.app.state.service
+    for o in ("P1", "P2", "P3"):
+        crear(client, o, "D1", 1)
+    client.portal.call(service.step)          # se asignan a robots
+    asignadas = client.get("/api/v1/missions", params={"state": "ASSIGNED"}).json()
+    robot = asignadas[0]["robot_id"]
+
+    r = client.get("/api/v1/missions", params={"robot_id": robot, "state": ["ASSIGNED", "DONE"]})
+    assert r.headers["X-Total-Count"] == "1"
+    assert r.json()[0]["robot_id"] == robot
+    r = client.get("/api/v1/missions", params={"robot_id": robot, "state": "DONE"})
+    assert r.headers["X-Total-Count"] == "0"

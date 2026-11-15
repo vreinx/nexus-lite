@@ -11,7 +11,7 @@
 
   // Navegación mínima por hash: #/ (planta) y #/historial
   const VIEWS = { '': 'planta', historial: 'historial' };
-  const viewFromHash = () => VIEWS[location.hash.replace(/^#\/?/, '')] ?? 'planta';
+  const viewFromHash = () => VIEWS[location.hash.replace(/^#\/?/, '').split('?')[0]] ?? 'planta';
   let view = $state(viewFromHash());
 
   let mapError = $state('');

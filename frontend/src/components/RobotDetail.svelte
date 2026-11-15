@@ -57,6 +57,7 @@
         {/if}
       </dd>
     </dl>
+    <a class="history" href="#/historial?robot_id={robot.id}">Ver órdenes de {robot.id} →</a>
   {/if}
 </div>
 
@@ -68,6 +69,7 @@
   dd { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .waiting { font-size: 12px; font-weight: 600; color: #9a6418; background: #fbefd9;
              padding: 2px 8px; border-radius: 999px; }
+  .history { display: inline-block; margin-top: 12px; font-size: 13px; color: var(--accent); font-weight: 600; }
   .tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px;
          background: var(--brand-soft); color: var(--brand-dark); }
   .bar { flex: 1; min-width: 120px; height: 8px; background: #e3eae6; border-radius: 4px; overflow: hidden; }
