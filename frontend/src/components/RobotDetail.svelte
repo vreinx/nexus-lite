@@ -19,6 +19,7 @@
     <div class="head">
       <strong class="id">{robot.id}</strong>
       <span class="badge" style="background:{ROBOT_COLORS[robot.state]}">{robot.state}</span>
+      {#if robot.waiting}<span class="waiting">Cediendo el paso</span>{/if}
     </div>
 
     <dl>
@@ -55,6 +56,8 @@
   dl { display: grid; grid-template-columns: 80px 1fr; gap: 8px 12px; margin: 0; }
   dt { color: var(--muted); }
   dd { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .waiting { font-size: 12px; font-weight: 600; color: #9a6418; background: #fbefd9;
+             padding: 2px 8px; border-radius: 999px; }
   .tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px;
          background: var(--brand-soft); color: var(--brand-dark); }
   .bar { flex: 1; min-width: 120px; height: 8px; background: #e3eae6; border-radius: 4px; overflow: hidden; }

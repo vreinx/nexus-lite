@@ -44,6 +44,10 @@ class Robot:
     mission_id: str | None = None
     target: tuple[int, int] | None = None   # celda a la que se dirige
     timer: int = 0                          # segundos restantes de LOADING / UNLOADING
+    # Tráfico (ver simulator.py)
+    waiting: bool = False                   # parado este tick cediendo el paso / esperando
+    blocked_ticks: int = 0                  # ticks seguidos sin poder avanzar
+    hold_ticks: int = 0                     # ticks que se queda quieto tras apartarse
 
     @property
     def pos(self) -> tuple[int, int]:

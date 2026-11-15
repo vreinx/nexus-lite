@@ -69,7 +69,7 @@ def test_robots(client):
     assert [r["id"] for r in robots] == ["R1", "R2", "R3", "R4", "R5"]
     assert all(r["state"] == "IDLE" and r["battery"] == 100 for r in robots)
 
-    assert client.get("/api/v1/robots/R3").json()["x"] == 10
+    assert client.get("/api/v1/robots/R3").json()["x"] == 8
     assert client.get("/api/v1/robots/R9").status_code == 404
     assert client.get("/api/v1/missions/no-existe").status_code == 404
 

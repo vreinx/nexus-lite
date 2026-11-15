@@ -3,7 +3,7 @@ from app.domain.assignment import plan_assignments
 from app.domain.models import MissionState, Robot, RobotState
 from tests.conftest import mission
 
-POS = {"P1": (0, 1), "P2": (0, 4), "P4": (0, 10)}
+POS = {"P1": (0, 1), "P2": (0, 4), "P4": (0, 10), "D1": (19, 3), "D2": (19, 8)}
 
 
 def plan(missions, robots, min_battery=30):
@@ -55,3 +55,14 @@ def test_sin_robots_libres_no_asigna_y_solo_pending():
     ms[1].state = MissionState.DONE
     assert plan(ms, []) == []
     assert plan(ms, [Robot("R1", 0, 0)]) == [("m1", "R1")]
+
+
+def test_excluye_robot_sin_bateria_para_terminar_y_volver_a_cargar():
+    from app.domain.assignment import plan_assignments
+    ms = [mission("larga", origin="P1", dest="D1")]
+    # Desde (19,11): 29 celdas a P1 + 21 a D1 + 13 a C1 (10,0) = 63 celdas = 31,5 %
+    justo = Robot("justo", 19, 11, battery=35)
+    sobrado = Robot("sobrado", 19, 11, battery=40)
+    plan_ = plan_assignments(ms, [justo, sobrado], POS.__getitem__, 30,
+                             charger=(10, 0), per_cell=0.5, reserve=5)
+    assert [(m.id, r.id) for m, r in plan_] == [("larga", "sobrado")]

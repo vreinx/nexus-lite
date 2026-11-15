@@ -37,6 +37,16 @@ class Station(Cell):
     type: StationType
     capacity: int = Field(default=1, ge=1)  # solo relevante en CHARGER
     queue: Cell | None = None               # celda de espera del cargador
+    # Plazas del cargador: una celda por plaza (dos robots nunca comparten celda).
+    # Si no se indican, se usan celdas contiguas a la derecha de (x, y).
+    bays: list[Cell] | None = None
+
+    @property
+    def cells(self) -> list[tuple[int, int]]:
+        """Celdas que ocupa la estación (más de una si es un cargador con varias plazas)."""
+        if self.bays:
+            return [(b.x, b.y) for b in self.bays]
+        return [(self.x, self.y)]
 
 
 class RobotInit(Cell):
@@ -63,6 +73,13 @@ class MapConfig(BaseModel):
 
     @model_validator(mode="after")
     def _check(self) -> "MapConfig":
+        for s in self.stations:
+            if s.type == StationType.CHARGER:
+                if s.bays is None:
+                    s.bays = [Cell(x=s.x + i, y=s.y) for i in range(s.capacity)]
+                if len(s.bays) != s.capacity:
+                    raise ValueError(f"{s.id}: el número de plazas debe coincidir con la capacidad")
+
         def inside(c: Cell, what: str) -> None:
             if c.x >= self.grid.width or c.y >= self.grid.height:
                 raise ValueError(f"{what} ({c.x},{c.y}) fuera de la cuadrícula")
@@ -72,13 +89,21 @@ class MapConfig(BaseModel):
         if dup:
             raise ValueError(f"ids repetidos: {sorted(dup)}")
 
-        cells = [(s.x, s.y) for s in self.stations]
+        cells = [c for s in self.stations for c in s.cells]
+        cells += [(s.queue.x, s.queue.y) for s in self.stations if s.queue]
         dup_cells = {c for c in cells if cells.count(c) > 1}
         if dup_cells:
             raise ValueError(f"varias estaciones en la misma celda: {sorted(dup_cells)}")
 
+        robot_cells = [(r.x, r.y) for r in self.robots]
+        dup_robots = {c for c in robot_cells if robot_cells.count(c) > 1}
+        if dup_robots:
+            raise ValueError(f"varios robots empiezan en la misma celda: {sorted(dup_robots)}")
+
         for s in self.stations:
             inside(s, s.id)
+            for b in s.bays or []:
+                inside(b, f"plaza de {s.id}")
             if s.queue:
                 inside(s.queue, f"cola de {s.id}")
         for r in self.robots:
