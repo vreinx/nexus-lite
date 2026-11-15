@@ -357,6 +357,8 @@ class FleetSimulator:
     #  - Si lo bloquea un robot que no puede moverse (cargando, en C1, en error),
     #    espera DETOUR_AFTER ticks y lo rodea por un lateral.
     #  - Si la celda bloqueada es su propio destino (estación ocupada), espera.
+    #  - Una casilla de entrega con un palet recién entregado está bloqueada
+    #    hasta que se retira: nadie entra (el que va a descargar espera al lado).
     def _priority_key(self, r: Robot):
         if r.mission_id:
             m = self.missions[r.mission_id]
@@ -389,6 +391,10 @@ class FleetSimulator:
             cells.add((x, y))
         return cells
 
+    def _blocked_drop_cells(self) -> set[Pos]:
+        """Casillas de entrega con un palet entregado que aún no se ha retirado."""
+        return {self._station_pos(sid) for sid, left in self.pallets.items() if left is not None}
+
     def _can_make_way(self, r: Robot) -> bool:
         """Robot parado que puede apartarse si estorba."""
         if r.state == RobotState.IDLE:
@@ -400,6 +406,7 @@ class FleetSimulator:
 
     def _resolve_traffic(self, movers: list[Robot]) -> None:
         occupied: dict[Pos, Robot] = {r.pos: r for r in self.robots.values()}
+        self._pallet_blocked = self._blocked_drop_cells()
         # Celda que necesita cada robot que se ha quedado bloqueado este tick.
         # Como se procesan por prioridad, quien aparece aquí siempre es más
         # prioritario que los que se procesan después.
@@ -412,7 +419,8 @@ class FleetSimulator:
             if r.hold_ticks > 0:
                 r.hold_ticks -= 1
             else:
-                free = next((c for c in steps if c not in occupied), None)
+                free = next((c for c in steps
+                             if c not in occupied and c not in self._pallet_blocked), None)
                 if free is not None:
                     self._move_to(r, free, occupied)
                     continue
@@ -463,7 +471,8 @@ class FleetSimulator:
         la ruta del robot al que deja pasar y las que menos le alejan de su destino."""
         x, y = r.pos
         options = [c for c in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1))
-                   if self._in_grid(c) and c not in occupied]
+                   if self._in_grid(c) and c not in occupied
+                   and c not in getattr(self, "_pallet_blocked", set())]
         if not options:
             return False
         goal = r.target or r.pos

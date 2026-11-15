@@ -100,8 +100,12 @@ def test_estres_sin_colisiones_y_todas_las_misiones_terminan(seed):
             except MissionError:
                 break
             created += 1
+        antes = {r.id: r.pos for r in sim.robots.values()}
         sim.tick()
         assert_no_collisions(sim)
+        # Nadie entra en una casilla de entrega mientras tiene el palet anterior
+        con_palet = {sim._station_pos(sid) for sid, left in sim.pallets.items() if left is not None}
+        assert not [r.id for r in sim.robots.values() if r.pos in con_palet and antes[r.id] != r.pos]
         if created == len(specs) and all(m.state == MissionState.DONE for m in sim.missions.values()):
             break
 

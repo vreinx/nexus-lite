@@ -143,3 +143,37 @@ def test_palets_sobreviven_al_reinicio():
     service = FleetService(build_sim().cfg, repo)
     asyncio.run(service.start(run_loop=False))
     assert "P1" not in service.sim.pallets and "P2" in service.sim.pallets
+
+
+def test_nadie_entra_en_la_casilla_de_entrega_hasta_que_se_retira_el_palet(make_sim):
+    # R1 a una casilla de D1 (19,3), que aún tiene el palet de otra entrega.
+    sim = make_sim(robots=[{"id": "R1", "x": 17, "y": 3}], drop_clear_seconds=5)
+    sim.add_mission(mission("m1", "P2", "D1"))
+    m, r = sim.missions["m1"], sim.robots["R1"]
+    m.state, m.robot_id = MissionState.IN_PROGRESS, "R1"
+    r.state, r.mission_id, r.target = RobotState.TO_DROP, "m1", (19, 3)
+    del sim.pallets["P2"]
+    sim.pallets["D1"] = 4
+
+    posiciones = []
+    while True:
+        sim.tick()
+        if "D1" not in sim.pallets:
+            break
+        posiciones.append(r.pos)                # posiciones mientras el palet sigue ahí
+    assert (19, 3) not in posiciones           # nunca pisa la casilla con palet
+    assert posiciones[-1] == (18, 3)           # espera justo al lado
+
+    run_until(sim, lambda: r.state == RobotState.UNLOADING)
+    assert r.pos == (19, 3)                    # entra en cuanto se retira
+
+
+def test_el_robot_que_acaba_de_descargar_puede_salir(make_sim):
+    sim = make_sim(robots=[{"id": "R1", "x": 0, "y": 3}], drop_clear_seconds=3)
+    sim.add_mission(mission("m1", "P2", "D1"))
+    r = sim.robots["R1"]
+    run_until(sim, lambda: sim.missions["m1"].state == MissionState.DONE)
+    assert r.pos == (19, 3) and "D1" in sim.pallets
+    sim.tick()
+    sim.tick()
+    assert r.pos != (19, 3)                    # se va hacia su parking aunque el palet siga
