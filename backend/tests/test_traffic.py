@@ -78,22 +78,34 @@ def test_robot_aparcado_se_aparta_y_vuelve_a_su_parking(make_sim):
 
 @pytest.mark.parametrize("seed", [0, 1, 42])
 def test_estres_sin_colisiones_y_todas_las_misiones_terminan(seed):
-    """60 misiones aleatorias: nunca dos robots en la misma celda, ningún robot
-    sin batería y todas las misiones terminan (no hay bloqueos permanentes)."""
+    """60 órdenes aleatorias. Un "operador" repone los palets de origen en
+    cuanto se vacían y las órdenes se lanzan cuando son válidas (palet libre en
+    origen y destino libre). Nunca dos robots en la misma celda, ningún robot
+    sin batería y todas las órdenes terminan."""
+    from app.domain.simulator import MissionError
     rng = random.Random(seed)
     sim = build_sim()
     picks, drops = ["P1", "P2", "P3", "P4"], ["D1", "D2"]
-    for i in range(60):
-        m = mission(f"m{i:02d}", rng.choice(picks), rng.choice(drops),
-                    priority=rng.randint(1, 3), minutes=i)
-        sim.add_mission(m)
+    specs = [(rng.choice(picks), rng.choice(drops), rng.randint(1, 3)) for _ in range(60)]
+    created = 0
 
-    for t in range(1200):
+    for t in range(3000):
+        for p in picks:
+            if p not in sim.pallets:
+                sim.declare_pallet(p)
+        while created < len(specs):
+            o, d, pr = specs[created]
+            try:
+                sim.add_mission(mission(f"m{created:02d}", o, d, priority=pr, minutes=created))
+            except MissionError:
+                break
+            created += 1
         sim.tick()
         assert_no_collisions(sim)
-        if all(m.state == MissionState.DONE for m in sim.missions.values()):
+        if created == len(specs) and all(m.state == MissionState.DONE for m in sim.missions.values()):
             break
 
+    assert created == len(specs)
     estados = {m.state for m in sim.missions.values()}
     assert estados == {MissionState.DONE}, f"misiones sin terminar: {estados}"
     assert all(r.state != RobotState.ERROR for r in sim.robots.values())

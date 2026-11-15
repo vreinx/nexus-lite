@@ -93,8 +93,8 @@ def test_c1_llena_cola_fifo(make_sim):
 
 def test_cancelar_pending_y_assigned(make_sim):
     sim = make_sim(robots=[{"id": "R1", "x": 10, "y": 11}])
-    sim.add_mission(mission("m1", priority=1))
-    sim.add_mission(mission("m2", priority=3))
+    sim.add_mission(mission("m1", "P1", priority=1))
+    sim.add_mission(mission("m2", "P2", priority=3))
     sim.tick()   # m1 -> ASSIGNED a R1, m2 sigue PENDING
 
     assert sim.cancel_mission("m2").state == MissionState.CANCELLED
@@ -110,7 +110,7 @@ def test_no_se_cancela_in_progress_ni_terminada(make_sim):
     with pytest.raises(MissionError):
         sim.cancel_mission("m1")
 
-    sim.add_mission(mission("m2"))
+    sim.add_mission(mission("m2", "P2"))
     sim.cancel_mission("m2")
     with pytest.raises(MissionError):
         sim.cancel_mission("m2")

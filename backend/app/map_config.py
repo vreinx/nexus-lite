@@ -63,6 +63,7 @@ class SimulationParams(BaseModel):
     min_battery_to_assign: float = Field(default=30, ge=0, le=100)
     low_battery_threshold: float = Field(default=20, ge=0, le=100)
     charge_target: float = Field(default=100, gt=0, le=100)  # sale de C1 al llegar a este %
+    drop_clear_seconds: int = Field(default=2, ge=0)  # tiempo que el palet entregado ocupa el destino
 
 
 class MapConfig(BaseModel):

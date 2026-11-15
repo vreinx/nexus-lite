@@ -70,6 +70,8 @@ class MissionRepository(Protocol):
     async def count(self, flt: MissionFilter | None = None) -> int: ...
     async def save_robots(self, robots: list[Robot]) -> None: ...
     async def load_robots(self) -> dict[str, dict]: ...
+    async def save_stations(self, stations: list[dict]) -> None: ...
+    async def load_stations(self) -> dict[str, bool]: ...
     async def list_active(self) -> list[Mission]: ...
     async def close(self) -> None: ...
 
@@ -94,6 +96,7 @@ class MongoMissionRepository:
         self._client = AsyncMongoClient(url, tz_aware=True)
         self._col = self._client[db]["missions"]
         self._robots = self._client[db]["robots"]
+        self._stations = self._client[db]["stations"]
 
     async def init(self) -> None:
         await self._col.create_index([("state", 1), ("created_at", -1)])
@@ -126,6 +129,15 @@ class MongoMissionRepository:
     async def load_robots(self) -> dict[str, dict]:
         return {d["_id"]: d async for d in self._robots.find({})}
 
+    async def save_stations(self, stations: list[dict]) -> None:
+        if stations:
+            ops = [ReplaceOne({"_id": s["id"]}, {"_id": s["id"], "pallet": s["pallet"]}, upsert=True)
+                   for s in stations]
+            await self._stations.bulk_write(ops, ordered=False)
+
+    async def load_stations(self) -> dict[str, bool]:
+        return {d["_id"]: bool(d["pallet"]) async for d in self._stations.find({})}
+
     async def list_active(self) -> list[Mission]:
         query = {"state": {"$in": [s.value for s in ACTIVE_MISSION_STATES]}}
         return [from_doc(d) async for d in self._col.find(query)]
@@ -140,6 +152,14 @@ class InMemoryMissionRepository:
     def __init__(self, missions: list[Mission] | None = None):
         self._data: dict[str, Mission] = {m.id: replace(m) for m in missions or []}
         self.robots: dict[str, dict] = {}
+        self.stations: dict[str, bool] = {}
+
+    async def save_stations(self, stations: list[dict]) -> None:
+        for s in stations:
+            self.stations[s["id"]] = s["pallet"]
+
+    async def load_stations(self) -> dict[str, bool]:
+        return dict(self.stations)
 
     async def save_robots(self, robots: list[Robot]) -> None:
         for r in robots:

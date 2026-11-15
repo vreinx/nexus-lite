@@ -1,10 +1,13 @@
 <script>
   // Crear una orden desde el mapa: se abre al hacer clic en una estación de recogida.
-  import { fleet, createMission } from '../lib/fleet.svelte.js';
+  import { fleet, createMission, declarePallet } from '../lib/fleet.svelte.js';
 
   let { station, style = '', onclose } = $props();
 
   let drops = $derived(fleet.map.stations.filter((s) => s.type === 'DROP'));
+  let load = $derived(fleet.stations[station.id]);
+  let hasPallet = $derived(!!load?.pallet);
+  let reservedBy = $derived(load?.reserved_by);
   let destination = $state(null);
   let priority = $state(2);
   let error = $state('');
@@ -13,6 +16,15 @@
   $effect(() => {
     if (!destination && drops.length) destination = drops[0].id;
   });
+
+  async function declare() {
+    error = '';
+    try {
+      await declarePallet(station.id);
+    } catch (e) {
+      error = e.message;
+    }
+  }
 
   async function create() {
     error = '';
@@ -36,10 +48,26 @@
     <button class="x" onclick={onclose} aria-label="Cerrar">×</button>
   </div>
 
+  {#if !hasPallet}
+    <p class="info">No hay palet en {station.id}. Declara uno para poder crear una orden.</p>
+    {#if error}<p class="error">{error}</p>{/if}
+    <div class="actions">
+      <button onclick={onclose}>Cerrar</button>
+      <button class="primary" onclick={declare}>Declarar palet</button>
+    </div>
+  {:else if reservedBy}
+    <p class="info">El palet de {station.id} ya tiene una orden asignada
+      (<span class="mono">{reservedBy.slice(0, 8)}</span>).</p>
+    <div class="actions"><button onclick={onclose}>Cerrar</button></div>
+  {:else}
   <div class="label">Destino</div>
   <div class="chips">
     {#each drops as d}
-      <button class:on={destination === d.id} onclick={() => (destination = d.id)}>{d.id}</button>
+      {@const busy = fleet.stations[d.id]?.pallet}
+      <button class:on={destination === d.id} onclick={() => (destination = d.id)}
+              title={busy ? 'Ocupado: aún tiene el palet de una entrega' : ''}>
+        {d.id}{#if busy}<span class="busy"> · ocupado</span>{/if}
+      </button>
     {/each}
   </div>
 
@@ -58,6 +86,7 @@
       Crear {station.id} → {destination}
     </button>
   </div>
+  {/if}
 </div>
 
 <style>
@@ -82,4 +111,6 @@
   .chips .p3.on { background: #2f6e80; border-color: #2f6e80; }
   .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
   .error { color: var(--danger); font-size: 12px; margin: 8px 0 0; }
+  .info { font-size: 13px; color: var(--muted); margin: 6px 0 4px; }
+  .busy { font-size: 11px; color: #9a6418; }
 </style>

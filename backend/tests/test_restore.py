@@ -17,12 +17,14 @@ def _mision(mid, state, origin="P1", minutes=0):
 
 def test_reinicio_reencola_misiones_activas_y_no_pierde_ninguna():
     repo = InMemoryMissionRepository([
-        _mision("pendiente", MissionState.PENDING, minutes=0),
-        _mision("asignada", MissionState.ASSIGNED, minutes=1),
-        _mision("en_curso", MissionState.IN_PROGRESS, minutes=2),
-        _mision("hecha", MissionState.DONE, minutes=3),
-        _mision("mapa_viejo", MissionState.PENDING, origin="P9", minutes=4),
+        _mision("pendiente", MissionState.PENDING, origin="P1", minutes=0),
+        _mision("asignada", MissionState.ASSIGNED, origin="P2", minutes=1),
+        _mision("en_curso", MissionState.IN_PROGRESS, origin="P3", minutes=2),   # cargando: palet aún en P3
+        _mision("a_bordo", MissionState.IN_PROGRESS, origin="P4", minutes=3),    # palet ya en el robot
+        _mision("hecha", MissionState.DONE, minutes=4),
+        _mision("mapa_viejo", MissionState.PENDING, origin="P9", minutes=5),
     ])
+    repo.stations = {"P4": False}   # el palet de P4 ya no está en el origen
     service = FleetService(build_sim().cfg, repo)
 
     async def scenario():
@@ -41,7 +43,11 @@ def test_reinicio_reencola_misiones_activas_y_no_pierde_ninguna():
     assert "hecha" not in service.sim.missions
 
     assert stored["mapa_viejo"].state == MissionState.FAILED    # estación que ya no existe
-    assert "mapa actual" in stored["mapa_viejo"].reason
+    assert "no válida" in stored["mapa_viejo"].reason
+
+    # Con el palet a bordo no se puede reencolar: queda FAILED para que se revise
+    assert stored["a_bordo"].state == MissionState.FAILED
+    assert "palet a bordo" in stored["a_bordo"].reason
 
 
 def test_tras_reiniciar_se_reasignan():

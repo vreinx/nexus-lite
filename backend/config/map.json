@@ -30,6 +30,7 @@
     "unload_seconds": 3,
     "min_battery_to_assign": 30,
     "low_battery_threshold": 20,
-    "charge_target": 100
+    "charge_target": 100,
+    "drop_clear_seconds": 2
   }
 }

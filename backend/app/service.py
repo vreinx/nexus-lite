@@ -20,7 +20,7 @@ from app.telemetry import TelemetryStore
 
 log = logging.getLogger("nexus.service")
 
-Notifier = Callable[[list[Robot], list[Mission]], Awaitable[None]]
+Notifier = Callable[..., Awaitable[None]]   # (robots, missions, stations)
 
 TELEMETRY_TIMEOUT_S = 2.0
 
@@ -52,10 +52,10 @@ class FleetService:
     def lock(self) -> asyncio.Lock:
         return self._lock
 
-    async def _notify(self, robots: list[Robot], missions: list[Mission]) -> None:
+    async def _notify(self, robots: list[Robot], missions: list[Mission], stations: list[dict] = ()) -> None:
         if self.notify:
             try:
-                await self.notify(robots, missions)
+                await self.notify(robots, missions, stations)
             except Exception:
                 log.exception("Error notificando cambios en tiempo real")
 
@@ -92,20 +92,31 @@ class FleetService:
         await self.repo.save_robots(robots)
         log.info("Reinicio: %d robots restaurados desde la base de datos", len(restored_robots))
 
+        # Palets de origen guardados (los de destino son efímeros y no se restauran)
+        self.sim.restore_pallets(await self.repo.load_stations())
+
         active = sorted(await self.repo.list_active(), key=lambda m: m.created_at)
         invalid: list[Mission] = []
         for m in active:
+            if m.state == MissionState.IN_PROGRESS and m.origin not in self.sim.pallets:
+                # El robot ya había recogido el palet: no sabemos dónde ha quedado.
+                # El operador lo revisa, declara el palet y reenvía la orden.
+                m.state, m.updated_at = MissionState.FAILED, self.clock()
+                m.reason = f"interrumpida por reinicio con el palet a bordo de {m.robot_id}: revisar y reenviar"
+                invalid.append(m)
+                continue
             if m.state != MissionState.PENDING:
                 m.state, m.robot_id = MissionState.PENDING, None
                 m.reason = "reencolada tras reinicio del backend"
             try:
                 self.sim.add_mission(m)
-            except ValueError as e:
-                # p. ej. el mapa cambió y la estación ya no existe
-                m.state, m.reason, m.updated_at = MissionState.FAILED, f"no válida con el mapa actual: {e}", self.clock()
+            except (ValueError, MissionError) as e:
+                # p. ej. el mapa cambió o el origen ya no tiene palet
+                m.state, m.reason, m.updated_at = MissionState.FAILED, f"no válida tras el reinicio: {e}", self.clock()
                 invalid.append(m)
         _, restored = self.sim.drain_changes()
         await self.repo.save_many(restored + invalid)
+        await self.repo.save_stations(self.sim.drain_station_changes())
         log.info("Reinicio: %d misiones recuperadas, %d no válidas", len(restored), len(invalid))
 
     async def _loop(self) -> None:
@@ -125,9 +136,11 @@ class FleetService:
         async with self._lock:
             self.sim.tick()
             robots, missions = self.sim.drain_changes()
+            stations = self.sim.drain_station_changes()
             await self._persist(missions)
             await self._persist_robots(robots)
-            await self._notify(robots, missions)
+            await self._persist_stations(stations)
+            await self._notify(robots, missions, stations)
             # Copia del estado de todos los robots para la telemetría
             snapshot = [replace(r) for r in self.sim.robots.values()]
             ts = self.clock()
@@ -148,6 +161,14 @@ class FleetService:
             if self._telemetry_ok:
                 log.exception("No se pudo escribir la telemetría en InfluxDB")
             self._telemetry_ok = False
+
+    async def _persist_stations(self, stations: list[dict]) -> None:
+        try:
+            await self.repo.save_stations(stations)
+        except Exception:
+            log.exception("No se pudo guardar el estado de los palets; se reintentará")
+            for s in stations:
+                self.sim._touch_station(s["id"])
 
     async def _persist_robots(self, robots: list[Robot]) -> None:
         try:
@@ -195,7 +216,7 @@ class FleetService:
             except Exception as e:
                 self.sim.remove_mission(m.id)
                 raise RepositoryUnavailable("no se pudo guardar la misión") from e
-            await self._notify([], [m])
+            await self._notify([], [m], self.sim.drain_station_changes())
         return m
 
     async def cancel_mission(self, mission_id: str) -> Mission:
@@ -210,8 +231,22 @@ class FleetService:
                 raise MissionError(f"no se puede cancelar una misión en estado {stored.state.value}")
             await self._persist([m])
             # El robot liberado (si lo había) se notifica en el siguiente tick.
-            await self._notify([], [m])
+            stations = self.sim.drain_station_changes()
+            await self._persist_stations(stations)
+            await self._notify([], [m], stations)
         return m
+
+    # ------------------------------------------------------------------ palets
+    async def declare_pallet(self, station_id: str) -> dict:
+        async with self._lock:
+            self.sim.declare_pallet(station_id)   # KeyError / ValueError / MissionError
+            stations = self.sim.drain_station_changes()
+            await self._persist_stations(stations)
+            await self._notify([], [], stations)
+        return next(s for s in self.sim.stations_view() if s["id"] == station_id)
+
+    def stations(self) -> list[dict]:
+        return self.sim.stations_view()
 
     async def get_mission(self, mission_id: str) -> Mission | None:
         return await self.repo.get(mission_id)

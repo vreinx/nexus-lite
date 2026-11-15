@@ -1,8 +1,9 @@
 """B-01 / B-07: endpoints REST.
 
 Códigos de error:
-  404 recurso no existe · 409 transición no permitida (cancelar algo en curso
-  o terminado) · 422 entrada no válida · 503 base de datos no disponible.
+  404 recurso no existe · 409 conflicto con el estado actual (cancelar algo en
+  curso o terminado, origen sin palet, palet ya asignado, destino ocupado,
+  palet ya declarado) · 422 entrada no válida · 503 base de datos no disponible.
 """
 from datetime import datetime
 
@@ -27,13 +28,17 @@ def _service(request: Request) -> FleetService:
     status_code=status.HTTP_201_CREATED,
     response_model=MissionOut,
     tags=["misiones"],
-    responses={422: {"model": ErrorOut}, 503: {"model": ErrorOut}},
+    responses={409: {"model": ErrorOut}, 422: {"model": ErrorOut}, 503: {"model": ErrorOut}},
 )
 async def create_mission(body: MissionCreate, request: Request):
+    """Crea una orden. Requiere palet en el origen sin otra orden asignada y
+    destino libre (409 si no)."""
     try:
         m = await _service(request).create_mission(body.origin, body.destination, body.priority)
     except ValueError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
+    except MissionError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     except RepositoryUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
     return MissionOut.of(m)
@@ -114,6 +119,28 @@ async def retry_mission(mission_id: str, request: Request, body: MissionRetry | 
     except RepositoryUnavailable as e:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(e))
     return MissionOut.of(m)
+
+
+# ------------------------------------------------------------------- palets
+@router.get("/stations", tags=["palets"])
+async def list_stations(request: Request):
+    """Palets en estaciones de recogida y entrega. clears_in: segundos hasta que
+    se retira el palet entregado; reserved_by: orden que tiene asignado el palet."""
+    return _service(request).stations()
+
+
+@router.post("/stations/{station_id}/pallet", status_code=status.HTTP_201_CREATED, tags=["palets"],
+             responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}, 422: {"model": ErrorOut}})
+async def declare_pallet(station_id: str, request: Request):
+    """Declarar palet: el operador indica que ha dejado un palet en un origen."""
+    try:
+        return await _service(request).declare_pallet(station_id)
+    except KeyError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "estación no encontrada")
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
+    except MissionError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
 
 
 # -------------------------------------------------------------------- robots

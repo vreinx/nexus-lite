@@ -11,6 +11,7 @@ export const fleet = $state({
   map: null,
   robots: {},          // id -> robot
   missions: {},        // id -> misión
+  stations: {},        // id -> { pallet, clears_in, reserved_by, since }
   connection: 'connecting', // 'connecting' | 'online' | 'offline'
   retryIn: 0,          // segundos hasta el próximo intento
   selectedRobot: null,
@@ -53,14 +54,25 @@ function applyMissions(list) {
   }
 }
 
+function applyStations(list) {
+  for (const s of list) {
+    const prev = fleet.stations[s.id];
+    // Marca de cuándo aparece un palet entregado (para reiniciar el temporizador)
+    const since = s.clears_in != null && !(prev?.pallet) ? Date.now() : prev?.since;
+    fleet.stations[s.id] = { ...s, since };
+  }
+}
+
 function onMessage(event) {
   const msg = JSON.parse(event.data);
   if (msg.type === 'snapshot') {
     fleet.robots = {};
     fleet.missions = {};
+    fleet.stations = {};
   }
   applyRobots(msg.robots);
   applyMissions(msg.missions);
+  applyStations(msg.stations ?? []);
   if (msg.missions.length) fleet.missionsVersion++;
   fleet.lastUpdate = new Date();
 }
@@ -162,4 +174,11 @@ export async function retryMission(id, robotId) {
   applyMissions([m]);
   fleet.missionsVersion++;
   return m;
+}
+
+// ---------------------------------------------------------------- palets
+export async function declarePallet(stationId) {
+  const s = await request('POST', `/api/v1/stations/${stationId}/pallet`);
+  applyStations([s]);
+  return s;
 }

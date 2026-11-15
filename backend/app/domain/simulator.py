@@ -13,6 +13,15 @@ Orden dentro de un tick:
 Ciclo de una misión:
   PENDING -> ASSIGNED (robot va a recoger) -> IN_PROGRESS (robot llega y empieza
   a cargar la mercancía) -> DONE (termina de descargar).
+
+Palets:
+  - Cada estación de recogida tiene o no un palet. Al arrancar todas tienen uno;
+    después solo se reponen con declare_pallet() ("Declarar palet").
+  - Una orden solo se puede crear si en el origen hay un palet que no tenga ya
+    otra orden, y si el destino está libre en ese momento.
+  - El palet sale del origen cuando el robot termina de cargarlo. Al descargar
+    queda en el destino drop_clear_seconds segundos y después se retira.
+  - Si un robot llega a un destino que aún tiene el palet anterior, espera.
 """
 from collections import deque
 from datetime import datetime, timezone
@@ -70,8 +79,14 @@ class FleetSimulator:
             (s.id, (s.x, s.y)) for s in cfg.stations_of(StationType.PARKING)
         ]
 
+        # Palets: estación -> None (palet en un origen) | segundos hasta retirarlo (destino)
+        self.pallets: dict[str, int | None] = {
+            s.id: None for s in cfg.stations_of(StationType.PICKUP)
+        }
+
         self._dirty_robots: set[str] = set()
         self._dirty_missions: set[str] = set()
+        self._dirty_stations: set[str] = set()
 
     # ------------------------------------------------------------------- robots
     def restore_robots(self, saved: dict[str, dict]) -> list[str]:
@@ -115,13 +130,84 @@ class FleetSimulator:
             raise ValueError(f"prioridad debe estar entre {PRIORITY_MIN} y {PRIORITY_MAX}")
         if m.id in self.missions:
             raise MissionError(f"la misión {m.id} ya existe")
+        if m.origin not in self.pallets:
+            raise MissionError(f"No hay nada que mover en la posición {m.origin}")
+        holder = self.pallet_reserved_by(m.origin)
+        if holder is not None:
+            raise MissionError(f"El palet de {m.origin} ya tiene una orden asignada ({holder[:8]})")
+        if m.destination in self.pallets:
+            raise MissionError(f"El destino {m.destination} está ocupado")
         self.missions[m.id] = m
         self._touch_mission(m)
+        self._touch_station(m.origin)
 
     def remove_mission(self, mission_id: str) -> None:
         """Deshace un add_mission (si no se pudo guardar en base de datos)."""
-        self.missions.pop(mission_id, None)
+        m = self.missions.pop(mission_id, None)
         self._dirty_missions.discard(mission_id)
+        if m:
+            self._touch_station(m.origin)
+
+    # -------------------------------------------------------------------- palets
+    def pallet_reserved_by(self, station_id: str) -> str | None:
+        """Misión que tiene asignado el palet de un origen (aún sin recoger)."""
+        for m in self.missions.values():
+            if m.origin == station_id and m.state in (MissionState.PENDING, MissionState.ASSIGNED):
+                return m.id
+            if (m.origin == station_id and m.state == MissionState.IN_PROGRESS
+                    and self.robots[m.robot_id].state == RobotState.LOADING):
+                return m.id
+        return None
+
+    def declare_pallet(self, station_id: str) -> None:
+        """El operador indica que ha dejado un palet en un origen."""
+        st = self.cfg.station(station_id)
+        if st is None:
+            raise KeyError(station_id)
+        if st.type != StationType.PICKUP:
+            raise ValueError(f"{station_id} no es una estación de recogida")
+        if station_id in self.pallets:
+            raise MissionError(f"Ya hay un palet en {station_id}")
+        self.pallets[station_id] = None
+        self._touch_station(station_id)
+
+    def stations_view(self) -> list[dict]:
+        """Estado de palets de las estaciones de recogida y entrega."""
+        out = []
+        for s in self.cfg.stations:
+            if s.type in (StationType.PICKUP, StationType.DROP):
+                out.append({
+                    "id": s.id,
+                    "pallet": s.id in self.pallets,
+                    "clears_in": self.pallets.get(s.id),
+                    "reserved_by": self.pallet_reserved_by(s.id) if s.type == StationType.PICKUP else None,
+                })
+        return out
+
+    def restore_pallets(self, saved: dict[str, bool]) -> None:
+        """Palets de origen guardados. Los de destino (efímeros) no se restauran."""
+        for s in self.cfg.stations_of(StationType.PICKUP):
+            if s.id in saved:
+                if saved[s.id]:
+                    self.pallets[s.id] = None
+                else:
+                    self.pallets.pop(s.id, None)
+            self._touch_station(s.id)
+
+    def drain_station_changes(self) -> list[dict]:
+        ids = self._dirty_stations
+        self._dirty_stations = set()
+        return [v for v in self.stations_view() if v["id"] in ids]
+
+    def _tick_pallets(self) -> None:
+        for sid, left in list(self.pallets.items()):
+            if left is None:
+                continue
+            if left <= 1:
+                del self.pallets[sid]   # retirado del destino
+            else:
+                self.pallets[sid] = left - 1
+            self._touch_station(sid)
 
     def mark_robots_dirty(self, robot_ids) -> None:
         """Vuelve a marcar robots para guardarlos (si falló la escritura)."""
@@ -151,10 +237,12 @@ class FleetSimulator:
 
         m.state, m.reason = MissionState.CANCELLED, "cancelada por el usuario"
         self._touch_mission(m)
+        self._touch_station(m.origin)
         return m
 
     # ---------------------------------------------------------------------- tick
     def tick(self) -> None:
+        self._tick_pallets()
         movers: list[Robot] = []
         for r in self.robots.values():
             if self._is_travelling(r):
@@ -213,6 +301,13 @@ class FleetSimulator:
             m.state = MissionState.IN_PROGRESS
             self._touch_mission(m)
         elif r.state == RobotState.TO_DROP:
+            dest = self.missions[r.mission_id].destination
+            if dest in self.pallets:
+                # Aún está el palet de una entrega anterior: espera a que se retire.
+                if not r.waiting:
+                    r.waiting = True
+                    self._touch_robot(r)
+                return
             r.state, r.timer = RobotState.UNLOADING, self.p.unload_seconds
         elif r.state == RobotState.TO_CHARGER and r.target in self.charger_bays:
             r.state = RobotState.CHARGING
@@ -223,8 +318,14 @@ class FleetSimulator:
     def _finish_handling(self, r: Robot) -> None:
         m = self.missions[r.mission_id]
         if r.state == RobotState.LOADING:
+            self.pallets.pop(m.origin, None)          # el palet ya va en el robot
+            self._touch_station(m.origin)
             r.state, r.target = RobotState.TO_DROP, self._station_pos(m.destination)
         else:  # UNLOADING
+            self.pallets[m.destination] = self.p.drop_clear_seconds or None
+            if not self.p.drop_clear_seconds:
+                del self.pallets[m.destination]
+            self._touch_station(m.destination)
             m.state = MissionState.DONE
             self._touch_mission(m)
             r.state, r.mission_id, r.target = RobotState.IDLE, None, None
@@ -526,6 +627,9 @@ class FleetSimulator:
 
     def _touch_robot(self, r: Robot) -> None:
         self._dirty_robots.add(r.id)
+
+    def _touch_station(self, station_id: str) -> None:
+        self._dirty_stations.add(station_id)
 
     def _touch_mission(self, m: Mission) -> None:
         m.updated_at = self.clock()

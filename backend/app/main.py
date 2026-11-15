@@ -68,7 +68,7 @@ def create_app(
         # Con el candado: entre el snapshot y el alta no se cuela ningún update.
         async with service.lock:
             missions = await service.repo.find(limit=100)
-            await ws.send_text(encode("snapshot", service.list_robots(), missions))
+            await ws.send_text(encode("snapshot", service.list_robots(), missions, service.stations()))
             app.state.ws_clients.add(ws)
         try:
             while True:

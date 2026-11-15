@@ -3,6 +3,7 @@
   import { fleet, ROBOT_COLORS, batteryColor } from '../lib/fleet.svelte.js';
   import RobotIcon from './RobotIcon.svelte';
   import MissionPopover from './MissionPopover.svelte';
+  import PalletIcon from './PalletIcon.svelte';
 
   const C = 40;      // píxeles por celda
   const MARGIN = 14; // margen alrededor del mapa para que no se corten los robots del borde
@@ -107,10 +108,23 @@
                 fill={st.fill} stroke={st.stroke} stroke-width="2" stroke-dasharray={st.dash ?? 'none'} />
         {/each}
       {/if}
-      {#each cellsOf(s) as c}
-        <text x={center(c.x)} y={center(c.y) + 4} class="station-label" class:small={st.small}
-              pointer-events="none" fill={st.stroke}>{s.id}</text>
-      {/each}
+      {@const load = fleet.stations[s.id]}
+      {#if load?.pallet}
+        <!-- con palet: etiqueta pequeña arriba y el palet debajo -->
+        <text x={center(s.x)} y={s.y * C + 11} class="station-label tiny" pointer-events="none"
+              fill={st.stroke}>{s.id}</text>
+        <g transform="translate({center(s.x)}, {center(s.y) + 4}) scale(0.95)">
+          {#key load.since}
+            <PalletIcon timer={load.clears_in ? map.simulation.drop_clear_seconds : 0}
+                        reserved={!!load.reserved_by} />
+          {/key}
+        </g>
+      {:else}
+        {#each cellsOf(s) as c}
+          <text x={center(c.x)} y={center(c.y) + 4} class="station-label" class:small={st.small}
+                pointer-events="none" fill={st.stroke}>{s.id}</text>
+        {/each}
+      {/if}
     {/each}
 
     <!-- Ruta hasta el destino: en L, primero X y luego Y, como se mueve el robot -->
@@ -167,6 +181,7 @@
   .grid { stroke: #e3eae6; stroke-width: 1; }
   .station-label { font-size: 13px; font-weight: 700; text-anchor: middle; }
   .station-label.small { font-size: 10px; }
+  .station-label.tiny { font-size: 9px; }
   .clickable { cursor: pointer; transition: stroke-width 0.15s; outline: none; }
   .clickable:hover { stroke-width: 3.5; filter: brightness(0.97); }
   .queue-label { font-size: 10px; text-anchor: middle; fill: #a06a1e; }

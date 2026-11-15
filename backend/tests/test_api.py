@@ -42,8 +42,8 @@ def test_crear_mision_invalida_422(client, payload):
 
 
 def test_listar_con_filtro_por_estado(client):
-    a = crear(client).json()["id"]
-    crear(client)
+    a = crear(client, "P1").json()["id"]
+    crear(client, "P2")
     client.post(f"/api/v1/missions/{a}/cancel")
 
     todas = client.get("/api/v1/missions").json()
@@ -107,19 +107,19 @@ def test_telemetria_de_robot(client):
 # ---------------------------------------------------------------- historial
 def test_historial_filtros_y_paginacion(client):
     ids = {}
-    for o, d, p in [("P1", "D1", 1), ("P2", "D2", 2), ("P1", "D2", 3), ("P3", "D1", 1)]:
+    for o, d, p in [("P1", "D1", 1), ("P2", "D2", 2), ("P4", "D2", 3), ("P3", "D1", 1)]:
         ids[(o, d, p)] = crear(client, o, d, p).json()["id"]
-    client.post(f"/api/v1/missions/{ids[('P1', 'D2', 3)]}/cancel")
+    client.post(f"/api/v1/missions/{ids[('P4', 'D2', 3)]}/cancel")
 
     def get(**params):
         r = client.get("/api/v1/missions", params=params)
         assert r.status_code == 200
         return r.json(), int(r.headers["X-Total-Count"])
 
-    assert get(origin="P1")[1] == 2
+    assert get(origin="P1")[1] == 1
     assert get(destination="D1", priority=1)[1] == 2
     assert get(state=["PENDING", "CANCELLED"])[1] == 4
-    assert get(state="CANCELLED")[0][0]["origin"] == "P1"
+    assert get(state="CANCELLED")[0][0]["origin"] == "P4"
     assert get(id_prefix=ids[("P2", "D2", 2)][:8])[0][0]["destination"] == "D2"
 
     pagina1, total = get(limit=3, offset=0)
