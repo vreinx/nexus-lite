@@ -143,6 +143,47 @@ async def declare_pallet(station_id: str, request: Request):
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
 
 
+@router.delete("/stations/{station_id}/pallet", tags=["palets"],
+               responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}, 422: {"model": ErrorOut}})
+async def remove_pallet(station_id: str, request: Request):
+    """Retirar palet de un origen. 409 si no hay palet o si tiene una orden asignada."""
+    try:
+        return await _service(request).remove_pallet(station_id)
+    except KeyError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "estación no encontrada")
+    except ValueError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
+    except MissionError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+
+
+# ----------------------------------------------------------------- operador
+@router.post("/robots/{robot_id}/error", response_model=RobotOut, tags=["robots"],
+             responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}})
+async def force_robot_error(robot_id: str, request: Request):
+    """Forzar un robot a ERROR (avería). Si aún no llevaba el palet, su orden
+    vuelve a PENDING y se reasigna; si lo llevaba a bordo, pasa a FAILED."""
+    try:
+        return RobotOut.of(await _service(request).force_error(robot_id))
+    except KeyError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "robot no encontrado")
+    except MissionError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+
+
+@router.post("/robots/{robot_id}/reset", response_model=RobotOut, tags=["robots"],
+             responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}})
+async def reset_robot(robot_id: str, request: Request):
+    """Rearmar un robot en ERROR. Con batería baja, el operario lo lleva a una
+    plaza libre de C1 y queda cargando (409 si no hay plaza)."""
+    try:
+        return RobotOut.of(await _service(request).reset_robot(robot_id))
+    except KeyError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "robot no encontrado")
+    except MissionError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+
+
 # -------------------------------------------------------------------- robots
 @router.get("/robots", response_model=list[RobotOut], tags=["robots"])
 async def list_robots(request: Request):

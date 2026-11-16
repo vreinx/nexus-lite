@@ -1,6 +1,6 @@
 <script>
   // Crear una orden desde el mapa: se abre al hacer clic en una estación de recogida.
-  import { fleet, createMission, declarePallet } from '../lib/fleet.svelte.js';
+  import { fleet, createMission, declarePallet, removePallet } from '../lib/fleet.svelte.js';
 
   let { station, style = '', onclose } = $props();
 
@@ -21,6 +21,15 @@
     error = '';
     try {
       await declarePallet(station.id);
+    } catch (e) {
+      error = e.message;
+    }
+  }
+
+  async function remove() {
+    error = '';
+    try {
+      await removePallet(station.id);
     } catch (e) {
       error = e.message;
     }
@@ -81,6 +90,7 @@
   {#if error}<p class="error">{error}</p>{/if}
 
   <div class="actions">
+    <button class="danger left" onclick={remove} title="El palet ya no está en {station.id}">Retirar palet</button>
     <button onclick={onclose}>Cancelar</button>
     <button class="primary" onclick={create} disabled={sending || !destination}>
       Crear {station.id} → {destination}
@@ -93,7 +103,7 @@
   .pop {
     position: absolute;
     z-index: 5;
-    width: 290px;
+    width: 330px;
     background: #fff;
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -113,4 +123,5 @@
   .error { color: var(--danger); font-size: 12px; margin: 8px 0 0; }
   .info { font-size: 13px; color: var(--muted); margin: 6px 0 4px; }
   .busy { font-size: 11px; color: #9a6418; }
+  .left { margin-right: auto; }
 </style>

@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from app.domain.assignment import manhattan, mission_cost, plan_assignments
+from app.domain.pathfinding import astar
 from app.domain.models import (
     PRIORITY_MAX,
     PRIORITY_MIN,
@@ -118,6 +119,54 @@ class FleetSimulator:
             self._touch_robot(r)
         return restored
 
+    # ------------------------------------------------------------- operador
+    def force_error(self, robot_id: str, reason: str = "forzado por el operador") -> None:
+        """Pasa un robot a ERROR (avería). Su orden:
+          - si aún no lleva el palet (va a recoger o lo está cargando), vuelve a
+            PENDING y se reasigna a otro robot;
+          - si ya lo lleva a bordo, pasa a FAILED: hay que revisar el palet.
+        """
+        r = self.robots[robot_id]                       # KeyError -> 404
+        if r.state == RobotState.ERROR:
+            raise MissionError(f"{robot_id} ya está en ERROR")
+        if r.mission_id:
+            m = self.missions[r.mission_id]
+            if r.state in (RobotState.TO_DROP, RobotState.UNLOADING):
+                m.state = MissionState.FAILED
+                m.reason = f"{robot_id} en ERROR con el palet a bordo ({reason}): revisar y reenviar"
+            else:
+                m.state, m.robot_id = MissionState.PENDING, None
+                m.reason = f"reasignada: {robot_id} pasó a ERROR ({reason})"
+            self._touch_mission(m)
+            self._touch_station(m.origin)
+        self.charger_slots.pop(r.id, None)
+        if r.id in self.charger_queue:
+            self.charger_queue.remove(r.id)
+        r.state, r.mission_id, r.target, r.waiting, r.path = RobotState.ERROR, None, None, False, None
+        self._touch_robot(r)
+
+    def reset_robot(self, robot_id: str) -> None:
+        """Rearma un robot en ERROR.
+          - Con batería suficiente vuelve a IDLE donde está.
+          - Con batería baja o agotada, el operario lo lleva a mano a una plaza
+            libre de C1 y queda cargando. Si no hay plaza libre, no se puede.
+        """
+        r = self.robots[robot_id]
+        if r.state != RobotState.ERROR:
+            raise MissionError(f"{robot_id} no está en ERROR")
+        if r.battery >= self.p.low_battery_threshold:
+            r.state = RobotState.IDLE
+        else:
+            others = {o.pos for o in self.robots.values() if o is not r}
+            bay = self._free_bay(r.pos, r.id)
+            if bay is None or bay in others:
+                raise MissionError("batería baja y no hay plaza libre en C1 para llevarlo a cargar")
+            r.x, r.y = bay
+            r.state, r.target = RobotState.TO_CHARGER, bay
+            self.charger_slots[r.id] = bay       # en el siguiente tick -> CHARGING
+        r.blocked_ticks, r.hold_ticks = 0, 0
+        self._touch_robot(r)
+
     # ------------------------------------------------------------------ misiones
     def add_mission(self, m: Mission) -> None:
         origin = self.cfg.station(m.origin)
@@ -169,6 +218,21 @@ class FleetSimulator:
         if station_id in self.pallets:
             raise MissionError(f"Ya hay un palet en {station_id}")
         self.pallets[station_id] = None
+        self._touch_station(station_id)
+
+    def remove_pallet(self, station_id: str) -> None:
+        """El operador retira el palet de un origen (si no tiene una orden)."""
+        st = self.cfg.station(station_id)
+        if st is None:
+            raise KeyError(station_id)
+        if st.type != StationType.PICKUP:
+            raise ValueError(f"{station_id} no es una estación de recogida")
+        if station_id not in self.pallets:
+            raise MissionError(f"No hay palet en {station_id}")
+        holder = self.pallet_reserved_by(station_id)
+        if holder is not None:
+            raise MissionError(f"El palet de {station_id} tiene una orden asignada ({holder[:8]}): cancélala antes")
+        del self.pallets[station_id]
         self._touch_station(station_id)
 
     def stations_view(self) -> list[dict]:
@@ -292,7 +356,7 @@ class FleetSimulator:
                 self.charger_slots.pop(r.id, None)
 
     def _arrive(self, r: Robot) -> None:
-        r.waiting, r.blocked_ticks = False, 0
+        r.waiting, r.blocked_ticks, r.path = False, 0, None
         if r.state == RobotState.IDLE:
             r.target = None  # aparcado
         elif r.state == RobotState.TO_PICKUP:
@@ -391,6 +455,10 @@ class FleetSimulator:
             cells.add((x, y))
         return cells
 
+    def _avoid_for(self, higher: Robot) -> set[Pos]:
+        """Celdas por las que va a pasar un robot prioritario (para apartarse de ellas)."""
+        return set(higher.path) if higher.path else self._route(higher.pos, higher.target)
+
     def _blocked_drop_cells(self) -> set[Pos]:
         """Casillas de entrega con un palet entregado que aún no se ha retirado."""
         return {self._station_pos(sid) for sid, left in self.pallets.items() if left is not None}
@@ -407,6 +475,13 @@ class FleetSimulator:
     def _resolve_traffic(self, movers: list[Robot]) -> None:
         occupied: dict[Pos, Robot] = {r.pos: r for r in self.robots.values()}
         self._pallet_blocked = self._blocked_drop_cells()
+        # Obstáculos fijos para A*: robots que no se van a mover pronto y
+        # casillas de entrega con palet. Los que se mueven se gestionan abajo.
+        static = self._pallet_blocked | {
+            r.pos for r in self.robots.values()
+            if r.state in (RobotState.ERROR, RobotState.CHARGING,
+                           RobotState.LOADING, RobotState.UNLOADING)
+        }
         # Celda que necesita cada robot que se ha quedado bloqueado este tick.
         # Como se procesan por prioridad, quien aparece aquí siempre es más
         # prioritario que los que se procesan después.
@@ -414,7 +489,15 @@ class FleetSimulator:
 
         for r in sorted(movers, key=self._priority_key):
             was_waiting = r.waiting
-            steps = self._preferred_steps(r.pos, r.target)
+            path = astar(r.pos, r.target, self.width, self.height, static - {r.pos})
+            r.path = path
+            if path:
+                # Paso de la ruta A*; como alternativa (si lo ocupa un robot en
+                # movimiento), los pasos directos que no sean obstáculos fijos.
+                steps = [path[0]] + [c for c in self._preferred_steps(r.pos, r.target)
+                                     if c != path[0] and c not in static]
+            else:
+                steps = self._preferred_steps(r.pos, r.target)
 
             if r.hold_ticks > 0:
                 r.hold_ticks -= 1
@@ -431,7 +514,7 @@ class FleetSimulator:
             blocker = occupied.get(steps[0])
             if higher is not None:
                 # Un robot más prioritario necesita mi celda: me aparto.
-                if self._sidestep(r, occupied, avoid=self._route(higher.pos, higher.target)):
+                if self._sidestep(r, occupied, avoid=self._avoid_for(higher)):
                     r.hold_ticks = 1
                     continue
             elif (r.hold_ticks == 0 and steps[0] != r.target and blocker is not None
@@ -453,7 +536,7 @@ class FleetSimulator:
         for pos, higher in list(wanted_by.items()):
             r = occupied.get(pos)
             if r is not None and self._can_make_way(r):
-                if self._sidestep(r, occupied, avoid=self._route(higher.pos, higher.target)):
+                if self._sidestep(r, occupied, avoid=self._avoid_for(higher)):
                     r.hold_ticks = 1
 
     def _move_to(self, r: Robot, cell: Pos, occupied: dict[Pos, Robot]) -> None:

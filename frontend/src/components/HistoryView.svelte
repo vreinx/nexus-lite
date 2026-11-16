@@ -2,6 +2,7 @@
   // Historial de órdenes: filtros, paginación, exportar a CSV y reenviar las
   // FAILED / CANCELLED (como misión nueva, opcionalmente a un robot concreto).
   import { fleet, fetchMissions, retryMission } from '../lib/fleet.svelte.js';
+  import { formatDuration as duration } from '../lib/logic.js';
 
   const STATES = ['PENDING', 'ASSIGNED', 'IN_PROGRESS', 'DONE', 'CANCELLED', 'FAILED'];
   const STATE_COLORS = {
@@ -120,11 +121,6 @@
     new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit',
                                            minute: '2-digit', second: '2-digit' });
 
-  function duration(m) {
-    if (!['DONE', 'FAILED', 'CANCELLED'].includes(m.state) || !m.updated_at) return '—';
-    const s = Math.round((new Date(m.updated_at) - new Date(m.created_at)) / 1000);
-    return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
-  }
 
   async function exportCsv() {
     // Exporta todos los resultados del filtro actual (hasta 500)

@@ -245,8 +245,36 @@ class FleetService:
             await self._notify([], [], stations)
         return next(s for s in self.sim.stations_view() if s["id"] == station_id)
 
+    async def remove_pallet(self, station_id: str) -> dict:
+        async with self._lock:
+            self.sim.remove_pallet(station_id)    # KeyError / ValueError / MissionError
+            await self._flush()
+        return next(s for s in self.sim.stations_view() if s["id"] == station_id)
+
     def stations(self) -> list[dict]:
         return self.sim.stations_view()
+
+    # ---------------------------------------------------------------- operador
+    async def force_error(self, robot_id: str) -> Robot:
+        async with self._lock:
+            self.sim.force_error(robot_id)        # KeyError / MissionError
+            await self._flush()
+        return self.sim.robots[robot_id]
+
+    async def reset_robot(self, robot_id: str) -> Robot:
+        async with self._lock:
+            self.sim.reset_robot(robot_id)        # KeyError / MissionError
+            await self._flush()
+        return self.sim.robots[robot_id]
+
+    async def _flush(self) -> None:
+        """Guarda y notifica lo que ha cambiado (llamar con el candado)."""
+        robots, missions = self.sim.drain_changes()
+        stations = self.sim.drain_station_changes()
+        await self._persist(missions)
+        await self._persist_robots(robots)
+        await self._persist_stations(stations)
+        await self._notify(robots, missions, stations)
 
     async def get_mission(self, mission_id: str) -> Mission | None:
         return await self.repo.get(mission_id)

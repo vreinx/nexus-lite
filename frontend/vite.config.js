@@ -4,12 +4,18 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 // En desarrollo (npm run dev) Vite reenvía /api y /ws al backend.
 // En Docker lo hace nginx (nginx.conf). Así el frontend siempre usa rutas
 // relativas y no hace falta CORS.
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
+  // Tests (Vitest): componentes Svelte en un DOM simulado
+  resolve: mode === 'test' ? { conditions: ['browser'] } : undefined,
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.js'],
+  },
   server: {
     proxy: {
       '/api': 'http://localhost:8000',
       '/ws': { target: 'ws://localhost:8000', ws: true },
     },
   },
-});
+}));

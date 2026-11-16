@@ -31,7 +31,8 @@ export const ROBOT_COLORS = {
   ERROR: '#d1495b',
 };
 
-export const batteryColor = (b) => (b < 20 ? '#d1495b' : b < 30 ? '#e0a458' : '#6ca087');
+import { missionQuery } from './logic.js';
+export { batteryColor } from './logic.js';
 
 let ws = null;
 let backoff = 1000;
@@ -154,17 +155,7 @@ export async function cancelMission(id) {
 // ------------------------------------------------------------ historial
 // filters: { states: [], robot_id, origin, destination, priority, created_from, created_to, id_prefix }
 export async function fetchMissions(filters, limit, offset) {
-  const q = new URLSearchParams();
-  for (const st of filters.states ?? []) q.append('state', st);
-  for (const k of ['robot_id', 'origin', 'destination', 'priority', 'id_prefix']) {
-    if (filters[k]) q.set(k, filters[k]);
-  }
-  // Los <input type="datetime-local"> dan hora local sin zona: se pasan a ISO UTC
-  for (const k of ['created_from', 'created_to']) {
-    if (filters[k]) q.set(k, new Date(filters[k]).toISOString());
-  }
-  q.set('limit', limit);
-  q.set('offset', offset);
+  const q = missionQuery(filters, limit, offset);
   const { data, res } = await request('GET', `/api/v1/missions?${q}`, undefined, true);
   return { items: data, total: Number(res.headers.get('X-Total-Count') ?? data.length) };
 }
@@ -181,4 +172,27 @@ export async function declarePallet(stationId) {
   const s = await request('POST', `/api/v1/stations/${stationId}/pallet`);
   applyStations([s]);
   return s;
+}
+
+export async function removePallet(stationId) {
+  const s = await request('DELETE', `/api/v1/stations/${stationId}/pallet`);
+  applyStations([s]);
+  return s;
+}
+
+// ---------------------------------------------------------------- operador
+export async function forceError(robotId) {
+  const r = await request('POST', `/api/v1/robots/${robotId}/error`);
+  applyRobots([r]);
+  return r;
+}
+
+export async function resetRobot(robotId) {
+  const r = await request('POST', `/api/v1/robots/${robotId}/reset`);
+  applyRobots([r]);
+  return r;
+}
+
+export async function fetchTelemetry(robotId, minutes = 10, every = 5) {
+  return request('GET', `/api/v1/robots/${robotId}/telemetry?minutes=${minutes}&every=${every}`);
 }

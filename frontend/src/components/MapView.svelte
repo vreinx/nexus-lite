@@ -4,6 +4,7 @@
   import RobotIcon from './RobotIcon.svelte';
   import MissionPopover from './MissionPopover.svelte';
   import PalletIcon from './PalletIcon.svelte';
+  import { nextHeading, routeCells } from '../lib/logic.js';
 
   const C = 40;      // píxeles por celda
   const MARGIN = 14; // margen alrededor del mapa para que no se corten los robots del borde
@@ -19,22 +20,9 @@
   let width = $derived(map.grid.width * C);
   let height = $derived(map.grid.height * C);
 
-  // Orientación de cada robot: hacia donde va a moverse (primero X, luego Y,
-  // igual que el simulador). Si está parado conserva la última. Se acumula el
-  // ángulo por el camino más corto para que no dé la vuelta entera al girar.
+  // Orientación de cada robot: hacia su siguiente celda (ver logic.js)
   const headings = {};
-  function heading(r) {
-    let target = null;
-    if (r.target) {
-      const [tx, ty] = r.target;
-      if (r.x !== tx) target = tx > r.x ? 0 : 180;
-      else if (r.y !== ty) target = ty > r.y ? 90 : -90;
-    }
-    const prev = headings[r.id] ?? -90; // al arrancar, mirando "hacia arriba"
-    if (target === null) return prev;
-    const delta = ((((target - prev) % 360) + 540) % 360) - 180;
-    return (headings[r.id] = prev + delta);
-  }
+  const heading = (r) => (headings[r.id] = nextHeading(headings[r.id] ?? -90, r));
 
   // Si varios robots comparten celda, se separan y se encogen un poco para que se vean todos.
   let robots = $derived.by(() => {
@@ -127,10 +115,10 @@
       {/if}
     {/each}
 
-    <!-- Ruta hasta el destino: en L, primero X y luego Y, como se mueve el robot -->
+    <!-- Ruta hasta el destino: la calculada con A* en el backend -->
     {#each robots as r (r.id)}
       {#if r.target}
-        <polyline points="{center(r.x)},{center(r.y)} {center(r.target[0])},{center(r.y)} {center(r.target[0])},{center(r.target[1])}"
+        <polyline points={routeCells(r).map(([x, y]) => `${center(x)},${center(y)}`).join(' ')}
               fill="none" stroke={ROBOT_COLORS[r.state]} stroke-width="2" stroke-dasharray="5 4" opacity="0.6" />
       {/if}
     {/each}

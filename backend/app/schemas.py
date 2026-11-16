@@ -51,11 +51,13 @@ class RobotOut(BaseModel):
     mission_id: str | None
     target: tuple[int, int] | None
     waiting: bool = False   # parado cediendo el paso o esperando a que se libere su camino
+    path: list[tuple[int, int]] | None = None   # ruta A* restante
 
     @classmethod
     def of(cls, r: Robot) -> "RobotOut":
         return cls(id=r.id, x=r.x, y=r.y, battery=round(r.battery, 1), state=r.state,
-                   mission_id=r.mission_id, target=r.target, waiting=r.waiting)
+                   mission_id=r.mission_id, target=r.target, waiting=r.waiting,
+                   path=r.path if r.target else None)
 
 
 class ErrorOut(BaseModel):

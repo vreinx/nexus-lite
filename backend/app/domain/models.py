@@ -48,6 +48,7 @@ class Robot:
     waiting: bool = False                   # parado este tick cediendo el paso / esperando
     blocked_ticks: int = 0                  # ticks seguidos sin poder avanzar
     hold_ticks: int = 0                     # ticks que se queda quieto tras apartarse
+    path: list[tuple[int, int]] | None = None   # ruta A* restante hasta el destino
 
     @property
     def pos(self) -> tuple[int, int]:

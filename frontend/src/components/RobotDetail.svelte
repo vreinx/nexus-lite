@@ -1,6 +1,25 @@
 <script>
   // F-03: detalle del robot seleccionado (estado, batería y misión actual).
-  import { fleet, ROBOT_COLORS, batteryColor } from '../lib/fleet.svelte.js';
+  import { fleet, ROBOT_COLORS, batteryColor, forceError, resetRobot } from '../lib/fleet.svelte.js';
+  import BatteryChart from './BatteryChart.svelte';
+
+  let opError = $state('');
+  let busy = $state(false);
+  async function operate(action) {
+    opError = '';
+    busy = true;
+    try {
+      await action(robot.id);
+    } catch (e) {
+      opError = e.message;
+    } finally {
+      busy = false;
+    }
+  }
+  $effect(() => {
+    fleet.selectedRobot;
+    opError = '';
+  });
 
   let robot = $derived(fleet.selectedRobot ? fleet.robots[fleet.selectedRobot] : null);
   let mission = $derived(robot?.mission_id ? fleet.missions[robot.mission_id] : null);
@@ -57,7 +76,18 @@
         {/if}
       </dd>
     </dl>
-    <a class="history" href="#/historial?robot_id={robot.id}">Ver órdenes de {robot.id} →</a>
+    <div class="ops">
+      <a class="history" href="#/historial?robot_id={robot.id}">Ver órdenes de {robot.id} →</a>
+      {#if robot.state === 'ERROR'}
+        <button class="primary small" disabled={busy} onclick={() => operate(resetRobot)}
+                title="Rearmar: vuelve a IDLE, o a cargar a C1 si tiene poca batería">Rearmar</button>
+      {:else}
+        <button class="danger small" disabled={busy} onclick={() => operate(forceError)}
+                title="Simula una avería: su orden se reasigna o falla si lleva el palet">Forzar ERROR</button>
+      {/if}
+    </div>
+    {#if opError}<p class="op-error" role="alert">{opError}</p>{/if}
+    <BatteryChart robotId={robot.id} />
   {/if}
 </div>
 
@@ -69,7 +99,10 @@
   dd { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .waiting { font-size: 12px; font-weight: 600; color: #9a6418; background: #fbefd9;
              padding: 2px 8px; border-radius: 999px; }
-  .history { display: inline-block; margin-top: 12px; font-size: 13px; color: var(--accent); font-weight: 600; }
+  .history { font-size: 13px; color: var(--accent); font-weight: 600; }
+  .ops { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; }
+  button.small { padding: 3px 10px; font-size: 12px; }
+  .op-error { color: var(--danger); font-size: 12px; margin: 6px 0 0; }
   .tag { font-size: 11px; font-weight: 600; padding: 1px 6px; border-radius: 4px;
          background: var(--brand-soft); color: var(--brand-dark); }
   .bar { flex: 1; min-width: 120px; height: 8px; background: #e3eae6; border-radius: 4px; overflow: hidden; }
