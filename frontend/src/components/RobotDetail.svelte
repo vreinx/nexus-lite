@@ -1,6 +1,6 @@
 <script>
   // F-03: detalle del robot seleccionado (estado, batería y misión actual).
-  import { fleet, ROBOT_COLORS, batteryColor, forceError, resetRobot } from '../lib/fleet.svelte.js';
+  import { fleet, ROBOT_COLORS, batteryColor, forceError, resetRobot, isOperator } from '../lib/fleet.svelte.js';
   import BatteryChart from './BatteryChart.svelte';
 
   let opError = $state('');
@@ -78,7 +78,9 @@
     </dl>
     <div class="ops">
       <a class="history" href="#/historial?robot_id={robot.id}">Ver órdenes de {robot.id} →</a>
-      {#if robot.state === 'ERROR'}
+      {#if !isOperator()}
+        <span></span>
+      {:else if robot.state === 'ERROR'}
         <button class="primary small" disabled={busy} onclick={() => operate(resetRobot)}
                 title="Rearmar: vuelve a IDLE, o a cargar a C1 si tiene poca batería">Rearmar</button>
       {:else}

@@ -1,3 +1,4 @@
+from tests.conftest import login_as
 import copy
 import json
 from pathlib import Path
@@ -49,6 +50,7 @@ def test_falta_cargador_falla():
 def test_health_y_mapa():
     app = create_app(InMemoryMissionRepository, run_simulation=False, telemetry_factory=InMemoryTelemetryStore)
     with TestClient(app) as client:
+        login_as(client, "operador")
         assert client.get("/health").json() == {"status": "ok"}
         body = client.get("/api/v1/map").json()
         assert len(body["stations"]) == 12

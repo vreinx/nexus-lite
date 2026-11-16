@@ -58,11 +58,18 @@ docker compose exec mongo mongosh nexus_lite --quiet --eval "db.missions.find().
 
 Conviene usarlo solo para consultar: si se editan documentos con el backend en marcha, el simulador los sobrescribe en el siguiente tick.
 
-**InfluxDB** (telemetría): http://localhost:8086 → *Data Explorer* → bucket `telemetry` → medida `robot_telemetry` → campo `battery` (o `x`, `y`, `state`) → *Submit*. Por API: http://localhost:8000/api/v1/robots/R1/telemetry.
+**InfluxDB** (telemetría): http://localhost:8086 → *Data Explorer* → bucket `telemetry` → medida `robot_telemetry` → campo `battery` (o `x`, `y`, `state`) → *Submit*. Por API: http://localhost:8000/api/v1/robots/R1/telemetry (con sesión, ver [autenticación](#autenticación-y-roles)).
 
 ## 2. Cómo probarlo
 
-1. Abre http://localhost:8080. Arriba a la derecha debe aparecer **En vivo**.
+1. Abre http://localhost:8080 e inicia sesión. Hay dos usuarios (también aparecen en la pantalla de login, basta con hacer clic):
+
+   | Usuario / contraseña | Rol | Qué puede hacer |
+   |---|---|---|
+   | `operador` / `operador` | Operador | Todo: crear, cancelar y reenviar órdenes, declarar y retirar palets, forzar ERROR y rearmar robots |
+   | `consulta` / `consulta` | Consulta | Solo ver: planta, órdenes, detalle de robots e historial |
+
+   Arriba a la derecha se ve con qué rol estás actuando y debe aparecer **En vivo**. *Salir* cierra la sesión.
 2. **Crear órdenes:** haz clic en una estación de recogida (P1–P4) del mapa, elige destino y prioridad y pulsa *Crear*. También se puede desde el formulario «Nueva misión» de la derecha.
 3. **Seguir una orden:** el robot asignado va al origen, carga el palet (3 s), lo lleva al destino y lo descarga (3 s). El palet queda 2 s en el destino con un anillo de cuenta atrás y se retira.
 4. **Palets:** un origen sin palet no admite órdenes («No hay nada que mover en la posición P1»). Haz clic en él y pulsa *Declarar palet*. Un palet que ya tiene una orden no admite otra, y un destino con un palet recién entregado está ocupado.
@@ -71,11 +78,12 @@ Conviene usarlo solo para consultar: si se editan documentos con el backend en m
 7. **Carga:** crea muchas órdenes seguidas para que bajen las baterías. Los robots van a C1 (2 plazas), esperan en la celda de cola o, si también está ocupada, en un parking, sin coger órdenes mientras esperan.
 8. **Historial:** pestaña *Historial*, con filtros (estado, robot, origen, destino, prioridad, fechas, id), paginación, exportación a CSV y reenvío de órdenes fallidas o canceladas.
 9. **Reinicio (B-06):** con robots trabajando, ejecuta `docker compose restart backend`. La interfaz muestra *Sin conexión*, se reconecta sola y los robots siguen donde estaban, con su batería y sus órdenes.
-10. **Telemetría:** http://localhost:8000/api/v1/robots/R1/telemetry, o en InfluxDB → *Data Explorer* → bucket `telemetry` → `robot_telemetry` → campo `battery`.
+10. **Roles:** entra como `consulta`: desaparecen el formulario de órdenes, *Cancelar*, *Reenviar*, los botones del robot y el menú de las estaciones. La API también lo impide (403), no solo la interfaz.
+11. **Telemetría:** http://localhost:8000/api/v1/robots/R1/telemetry (requiere sesión; lo más cómodo es desde http://localhost:8000/docs → *Authorize*), o en InfluxDB → *Data Explorer* → bucket `telemetry` → `robot_telemetry` → campo `battery`.
 
 ## 3. Tests
 
-**Backend (pytest, 93 tests).** Con Docker, sin instalar nada:
+**Backend (pytest, 99 tests).** Con Docker, sin instalar nada:
 
 ```bash
 docker compose run --rm --no-deps backend python -m pytest -q
@@ -100,9 +108,10 @@ No necesitan MongoDB ni InfluxDB: usan implementaciones en memoria de los reposi
 | `test_operator.py` | A*, forzar ERROR, rearmar (con y sin palet a bordo, con y sin batería), retirar palet |
 | `test_restore.py` | **B-06**: qué pasa con robots, palets y órdenes al reiniciar |
 | `test_api.py` | **B-01 / B-07**: endpoints, códigos de error, filtros del historial, WebSocket |
+| `test_auth.py` | Login, sesión caducada o falsa (401), rol consulta: puede leer y recibe 403 en cada acción; WebSocket sin sesión rechazado |
 | `test_repository.py`, `test_map_config.py` | Consulta a MongoDB de los filtros; validación del mapa |
 
-**Frontend (Vitest, 17 tests).** Necesita Node 22:
+**Frontend (Vitest, 20 tests).** Necesita Node 22:
 
 ```bash
 cd frontend
@@ -179,6 +188,7 @@ backend/
   app/repository.py        MongoDB (y versión en memoria para tests)
   app/telemetry.py         InfluxDB (y versión en memoria para tests)
   app/api.py, schemas.py   contrato REST
+  app/auth.py              usuarios, roles y token JWT
   app/realtime.py          difusión por WebSocket
 frontend/src/
   lib/fleet.svelte.js      estado compartido, WebSocket y llamadas a la API
@@ -213,7 +223,7 @@ Definido en `backend/config/map.json`. Si tiene un error (estación fuera de la 
 | **F-03** | Detalle de robot: estado, batería, posición, destino, orden actual e histórico de batería |
 | **F-04** | Indicador *En vivo / Conectando / Sin conexión* con cuenta atrás; reconexión automática (1, 2, 4… hasta 10 s) y mapa en gris mientras no hay conexión |
 | Docker | `docker compose up` levanta todo sin pasos manuales |
-| Tests | Asignación, API y bastante más: 93 en backend y 17 en frontend |
+| Tests | Asignación, API y bastante más: 99 en backend y 20 en frontend |
 | Contrato | OpenAPI automático en `/docs` y tabla en este README |
 
 **Extras opcionales del enunciado que he hecho:**
@@ -221,6 +231,7 @@ Definido en `backend/config/map.json`. Si tiene un error (estación fuera de la 
 - Gráfico del histórico de batería leído de InfluxDB.
 - Botón para forzar un robot a ERROR y reasignar su orden.
 - Detección de dos robots en la misma celda y política para resolverlo: no se llega a producir.
+- Autenticación con dos roles, operador y consulta (ver [Autenticación](#autenticación-y-roles)).
 
 Sé que el enunciado pedía uno o dos como máximo; ver [sección 8](#8-qué-he-añadido-por-encima-del-enunciado).
 
@@ -228,23 +239,33 @@ Sé que el enunciado pedía uno o dos como máximo; ver [sección 8](#8-qué-he-
 
 Documentación interactiva completa (OpenAPI) en http://localhost:8000/docs. Todas las rutas van bajo `/api/v1`. Los errores devuelven `{"detail": "mensaje"}`.
 
+### Autenticación y roles
+
+`POST /api/v1/auth/login` con `{"username": "operador", "password": "operador"}` devuelve `{"token", "username", "role", "display_name"}`. El resto de rutas exige la cabecera `Authorization: Bearer <token>` (en `/docs`, botón *Authorize*) y el WebSocket el parámetro `/ws?token=<token>`.
+
+- **401** sin token, token falso o caducado (8 h). El WebSocket se cierra con código 1008.
+- **403** si el rol `VIEWER` (consulta) intenta una acción. Puede hacer todos los `GET` y conectarse al WebSocket.
+- Las acciones marcadas con 🔒 en la tabla solo las puede hacer el rol `OPERATOR`.
+
 | Método | Ruta | Qué hace | Errores |
 |---|---|---|---|
-| POST | `/missions` | Crea una orden `{origin, destination, priority}` → 201 | 409 origen sin palet, palet ya asignado o destino ocupado · 422 entrada no válida · 503 MongoDB caída |
+| POST | `/auth/login` | Inicia sesión (pública) | 401 usuario o contraseña incorrectos |
+| GET | `/auth/me` | Usuario y rol de la sesión actual | 401 |
+| POST | `/missions` 🔒 | Crea una orden `{origin, destination, priority}` → 201 | 409 origen sin palet, palet ya asignado o destino ocupado · 422 entrada no válida · 503 MongoDB caída |
 | GET | `/missions` | Historial, de más reciente a más antigua. Filtros: `state` (uno o varios), `robot_id`, `origin`, `destination`, `priority`, `created_from`, `created_to`, `id_prefix`. Paginación: `limit`, `offset`; el total va en la cabecera `X-Total-Count` | 422 |
 | GET | `/missions/{id}` | Una orden | 404 |
-| POST | `/missions/{id}/cancel` | Cancela una orden PENDING o ASSIGNED | 404 · 409 si está en curso o terminada |
-| POST | `/missions/{id}/retry` | Reenvía una FAILED o CANCELLED como orden nueva `{robot_id?}` → 201 | 404 · 409 · 422 robot inexistente |
+| POST | `/missions/{id}/cancel` 🔒 | Cancela una orden PENDING o ASSIGNED | 404 · 409 si está en curso o terminada |
+| POST | `/missions/{id}/retry` 🔒 | Reenvía una FAILED o CANCELLED como orden nueva `{robot_id?}` → 201 | 404 · 409 · 422 robot inexistente |
 | GET | `/robots` · `/robots/{id}` | Estado de los robots (incluye `path`, la ruta A* restante) | 404 |
 | GET | `/robots/{id}/telemetry` | Histórico de InfluxDB (`minutes`, `every`) | 404 · 503 InfluxDB caída |
-| POST | `/robots/{id}/error` | Fuerza una avería | 404 · 409 si ya está en ERROR |
-| POST | `/robots/{id}/reset` | Rearma un robot en ERROR | 404 · 409 si no está en ERROR o no hay plaza libre en C1 para cargarlo |
+| POST | `/robots/{id}/error` 🔒 | Fuerza una avería | 404 · 409 si ya está en ERROR |
+| POST | `/robots/{id}/reset` 🔒 | Rearma un robot en ERROR | 404 · 409 si no está en ERROR o no hay plaza libre en C1 para cargarlo |
 | GET | `/stations` | Palets en orígenes y destinos (`pallet`, `clears_in`, `reserved_by`) | |
-| POST | `/stations/{id}/pallet` | Declarar palet en un origen → 201 | 404 · 409 ya hay palet · 422 no es un origen |
-| DELETE | `/stations/{id}/pallet` | Retirar palet de un origen | 404 · 409 no hay palet o tiene una orden · 422 |
+| POST | `/stations/{id}/pallet` 🔒 | Declarar palet en un origen → 201 | 404 · 409 ya hay palet · 422 no es un origen |
+| DELETE | `/stations/{id}/pallet` 🔒 | Retirar palet de un origen | 404 · 409 no hay palet o tiene una orden · 422 |
 | GET | `/map` | Mapa y parámetros de simulación | |
-| GET | `/health` (sin `/api/v1`) | Comprobación de vida | |
-| WS | `/ws` (sin `/api/v1`) | `{"type": "snapshot" \| "update", "robots": [...], "missions": [...], "stations": [...]}` | |
+| GET | `/health` (sin `/api/v1`) | Comprobación de vida (pública) | |
+| WS | `/ws?token=…` (sin `/api/v1`) | `{"type": "snapshot" \| "update", "robots": [...], "missions": [...], "stations": [...]}` | |
 
 **Criterio de códigos:** 422 cuando la petición está mal formada o no tiene sentido (prioridad 7, origen que no es de recogida); 409 cuando la petición es correcta pero choca con el estado actual (cancelar algo en curso, un origen sin palet, un destino ocupado).
 
@@ -314,6 +335,13 @@ He modelado la orden como lo que es en planta: mover un palet concreto.
   - Si InfluxDB falla, se pierde ese punto de telemetría pero la simulación sigue, y el aviso en el log sale una sola vez.
 - *Descartado (primera versión):* que la simulación arrancara de cero en cada reinicio. Los robots volvían al 100 % de batería a su posición inicial, lo que no tiene sentido en una planta.
 
+### Autenticación
+
+- **Token JWT firmado (HS256) en lugar de sesión en servidor:** el backend no guarda estado de sesión, así que un reinicio (B-06) no echa a nadie. El token caduca a las 8 h, un turno.
+- **Permisos en el backend, no solo en la interfaz:** cada acción comprueba el rol (`require_operator`). La interfaz oculta los botones al rol consulta para que no vea opciones que no puede usar, pero la seguridad está en la API.
+- **Token en `sessionStorage`:** se pierde al cerrar la pestaña. En el WebSocket va como parámetro (`?token=`) porque el navegador no permite cabeceras propias en el handshake.
+- **Dos usuarios fijos** configurables por variables de entorno (`OPERATOR_PASSWORD`, `VIEWER_PASSWORD`, `AUTH_SECRET`). Una tabla de usuarios con hash de contraseñas era más de lo que pedía el ejercicio.
+
 ### Datos y tiempo real
 
 - **Telemetría en InfluxDB:** el estado del robot va como *field* y no como *tag*, para tener una sola serie por robot en lugar de una por robot y estado. La escritura va fuera del candado y con un tiempo máximo de 2 s, para que una InfluxDB lenta no frene el simulador.
@@ -333,7 +361,7 @@ El enunciado pide algo pequeño y bien hecho en 6–8 horas. El **núcleo obliga
 - Persistencia del estado de robots y palets.
 - Crear órdenes haciendo clic en el mapa.
 - Historial con filtros, CSV y reenvío.
-- Tres de los extras opcionales.
+- Cuatro de los extras opcionales.
 - Tests de frontend.
 - Diseño visual con la paleta de color de AND&OR.
 
@@ -346,7 +374,7 @@ Lo indico aquí para que quede claro qué es obligatorio y qué es añadido, y p
 - **Robots reales en lugar de simulados:** integración por **VDA 5050** sobre MQTT (`order`, `instantActions`, `state`), para gestionar flotas de varios fabricantes. El simulador pasaría a ser un adaptador más.
 - **Reconciliación tras un reinicio con lo que reporta cada robot** (si lleva carga, dónde está), en lugar de fiarse solo del último estado guardado.
 - **Un único proceso simulador.** El estado vive en memoria en un proceso: con varias instancias del backend habría que separar el simulador en un proceso único o usar un lock distribuido.
-- **Seguridad:** autenticación y roles (operador, que crea y cancela, y consulta, que solo ve), y auditoría de quién ha hecho cada acción (rearmar, retirar palet…).
+- **Seguridad:** los usuarios están fijos en la configuración y el secreto del token tiene un valor por defecto de desarrollo. En una planta: usuarios en base de datos con contraseñas con hash (o el directorio de la empresa por OIDC), secreto en un gestor de secretos, HTTPS y auditoría de quién ha hecho cada acción (rearmar, retirar palet…).
 - **Idempotencia:** `Idempotency-Key` en `POST /missions`, para que un reintento del cliente (por ejemplo, desde un ERP) no cree la orden dos veces.
 
 **Con más tiempo:**

@@ -1,6 +1,6 @@
 <script>
   // F-01: mapa 2D en SVG. Estaciones fijas + robots coloreados por estado.
-  import { fleet, ROBOT_COLORS, batteryColor } from '../lib/fleet.svelte.js';
+  import { fleet, ROBOT_COLORS, batteryColor, isOperator } from '../lib/fleet.svelte.js';
   import RobotIcon from './RobotIcon.svelte';
   import MissionPopover from './MissionPopover.svelte';
   import PalletIcon from './PalletIcon.svelte';
@@ -81,7 +81,7 @@
               rx="4" fill="none" stroke={st.stroke} stroke-dasharray="4 3" />
         <text x={center(s.queue.x)} y={center(s.queue.y) + 4} class="queue-label">cola</text>
       {/if}
-      {#if s.type === 'PICKUP'}
+      {#if s.type === 'PICKUP' && isOperator()}
         <rect x={s.x * C + 2} y={s.y * C + 2} width={C - 4} height={C - 4} rx="5"
               fill={st.fill} stroke={st.stroke} stroke-width={picker?.id === s.id ? 3.5 : 2}
               class="clickable" role="button" tabindex="0"

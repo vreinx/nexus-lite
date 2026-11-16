@@ -4,10 +4,16 @@ Códigos de error:
   404 recurso no existe · 409 conflicto con el estado actual (cancelar algo en
   curso o terminado, origen sin palet, palet ya asignado, destino ocupado,
   palet ya declarado) · 422 entrada no válida · 503 base de datos no disponible.
+
+Autenticación: todas las rutas requieren sesión (401 sin ella). Las que
+modifican algo requieren el rol operador (403 con el rol de consulta).
 """
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel
+
+from app.auth import User, authenticate, create_token, require_operator, require_user
 
 from app.domain.models import PRIORITY_MAX, PRIORITY_MIN, MissionState
 from app.domain.simulator import MissionError
@@ -15,7 +21,40 @@ from app.repository import MissionFilter
 from app.schemas import ErrorOut, MissionCreate, MissionOut, MissionRetry, RobotOut
 from app.service import FleetService, RepositoryUnavailable
 
-router = APIRouter(prefix="/api/v1")
+# Todas las rutas de este router necesitan sesión (operador o consulta)
+router = APIRouter(prefix="/api/v1", dependencies=[Depends(require_user)])
+# Login y "quién soy": sin sesión previa / con cualquier rol
+auth_router = APIRouter(prefix="/api/v1/auth", tags=["autenticación"])
+OPERATOR_ONLY = [Depends(require_operator)]
+WRITE_ERRORS = {401: {"model": ErrorOut}, 403: {"model": ErrorOut}}
+
+
+class LoginIn(BaseModel):
+    username: str
+    password: str
+
+
+class LoginOut(BaseModel):
+    token: str
+    username: str
+    role: str
+    display_name: str
+
+
+@auth_router.post("/login", response_model=LoginOut, responses={401: {"model": ErrorOut}})
+async def login(body: LoginIn):
+    """Usuarios del ejercicio: operador / operador (rol OPERATOR) y
+    consulta / consulta (rol VIEWER)."""
+    user = authenticate(body.username, body.password)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "usuario o contraseña incorrectos")
+    return LoginOut(token=create_token(user), username=user.username,
+                    role=user.role.value, display_name=user.display_name)
+
+
+@auth_router.get("/me", response_model=User, responses={401: {"model": ErrorOut}})
+async def me(user: User = Depends(require_user)):
+    return user
 
 
 def _service(request: Request) -> FleetService:
@@ -25,6 +64,7 @@ def _service(request: Request) -> FleetService:
 # ------------------------------------------------------------------ misiones
 @router.post(
     "/missions",
+    dependencies=OPERATOR_ONLY,
     status_code=status.HTTP_201_CREATED,
     response_model=MissionOut,
     tags=["misiones"],
@@ -82,6 +122,7 @@ async def get_mission(mission_id: str, request: Request):
 
 @router.post(
     "/missions/{mission_id}/cancel",
+    dependencies=OPERATOR_ONLY,
     response_model=MissionOut,
     tags=["misiones"],
     responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}},
@@ -100,6 +141,7 @@ async def cancel_mission(mission_id: str, request: Request):
 
 @router.post(
     "/missions/{mission_id}/retry",
+    dependencies=OPERATOR_ONLY,
     status_code=status.HTTP_201_CREATED,
     response_model=MissionOut,
     tags=["misiones"],
@@ -129,7 +171,7 @@ async def list_stations(request: Request):
     return _service(request).stations()
 
 
-@router.post("/stations/{station_id}/pallet", status_code=status.HTTP_201_CREATED, tags=["palets"],
+@router.post("/stations/{station_id}/pallet", dependencies=OPERATOR_ONLY, status_code=status.HTTP_201_CREATED, tags=["palets"],
              responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}, 422: {"model": ErrorOut}})
 async def declare_pallet(station_id: str, request: Request):
     """Declarar palet: el operador indica que ha dejado un palet en un origen."""
@@ -143,7 +185,7 @@ async def declare_pallet(station_id: str, request: Request):
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
 
 
-@router.delete("/stations/{station_id}/pallet", tags=["palets"],
+@router.delete("/stations/{station_id}/pallet", dependencies=OPERATOR_ONLY, tags=["palets"],
                responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}, 422: {"model": ErrorOut}})
 async def remove_pallet(station_id: str, request: Request):
     """Retirar palet de un origen. 409 si no hay palet o si tiene una orden asignada."""
@@ -158,7 +200,7 @@ async def remove_pallet(station_id: str, request: Request):
 
 
 # ----------------------------------------------------------------- operador
-@router.post("/robots/{robot_id}/error", response_model=RobotOut, tags=["robots"],
+@router.post("/robots/{robot_id}/error", dependencies=OPERATOR_ONLY, response_model=RobotOut, tags=["robots"],
              responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}})
 async def force_robot_error(robot_id: str, request: Request):
     """Forzar un robot a ERROR (avería). Si aún no llevaba el palet, su orden
@@ -171,7 +213,7 @@ async def force_robot_error(robot_id: str, request: Request):
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
 
 
-@router.post("/robots/{robot_id}/reset", response_model=RobotOut, tags=["robots"],
+@router.post("/robots/{robot_id}/reset", dependencies=OPERATOR_ONLY, response_model=RobotOut, tags=["robots"],
              responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}})
 async def reset_robot(robot_id: str, request: Request):
     """Rearmar un robot en ERROR. Con batería baja, el operario lo lleva a una

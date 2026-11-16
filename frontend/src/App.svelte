@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
-  import { fleet, connect, loadMap } from './lib/fleet.svelte.js';
+  import { fleet, connect, loadMap, logout, restoreSession } from './lib/fleet.svelte.js';
+  import LoginView from './components/LoginView.svelte';
   import ConnectionBadge from './components/ConnectionBadge.svelte';
   import Logo from './components/Logo.svelte';
   import MapView from './components/MapView.svelte';
@@ -16,7 +17,10 @@
 
   let mapError = $state('');
 
+  let checking = $state(true);   // comprobando si hay una sesión guardada
+
   async function loadMapWithRetry() {
+    if (!fleet.user) return;
     try {
       await loadMap();
       mapError = '';
@@ -26,15 +30,28 @@
     }
   }
 
-  onMount(() => {
+  // Tras iniciar sesión (o recuperar la guardada): mapa y tiempo real
+  function start() {
     loadMapWithRetry();
     connect();
+  }
+
+  onMount(() => {
+    restoreSession().then((user) => {
+      checking = false;
+      if (user) start();
+    });
     const onHash = () => (view = viewFromHash());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   });
 </script>
 
+{#if checking}
+  <p class="muted" style="padding: 24px">Cargando…</p>
+{:else if !fleet.user}
+  <LoginView onlogin={start} />
+{:else}
 <header>
   <div class="brand">
     <Logo />
@@ -48,6 +65,13 @@
     <a href="#/historial" class:active={view === 'historial'}>Historial</a>
   </nav>
   <ConnectionBadge />
+  <div class="user" title="Sesión iniciada como {fleet.user.username}">
+    <span class="role {fleet.user.role === 'OPERATOR' ? 'op' : 'ro'}">
+      {fleet.user.role === 'OPERATOR' ? 'Operador' : 'Consulta · solo lectura'}
+    </span>
+    <span class="who">{fleet.user.username}</span>
+    <button class="logout" onclick={() => logout()}>Salir</button>
+  </div>
 </header>
 
 {#if view === 'historial'}
@@ -74,6 +98,7 @@
   </aside>
 </main>
 {/if}
+{/if}
 
 <style>
   header {
@@ -92,6 +117,14 @@
   nav a:hover { background: rgba(255, 255, 255, 0.08); }
   nav a.active { background: var(--brand); color: #fff; }
   main.single { display: block; }
+  .user { display: flex; align-items: center; gap: 8px; margin-left: 12px; font-size: 13px; }
+  .role { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; color: #fff; }
+  .role.op { background: var(--brand); }
+  .role.ro { background: #4a90a4; }
+  .who { color: #cfe3d9; }
+  .logout { padding: 3px 10px; font-size: 12px; background: transparent; color: #cfe3d9;
+            border-color: rgba(255, 255, 255, 0.25); }
+  .logout:hover { background: rgba(255, 255, 255, 0.1); }
   .name { font-size: 19px; letter-spacing: 0.06em; line-height: 1.1; }
   .name strong { font-weight: 800; }
   .lite { font-weight: 300; margin-left: 5px; color: #a9d1bd; }

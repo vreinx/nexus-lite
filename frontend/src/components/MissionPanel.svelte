@@ -1,6 +1,6 @@
 <script>
   // F-02: lista de misiones en vivo, formulario para crear y botón para cancelar.
-  import { fleet, createMission, cancelMission } from '../lib/fleet.svelte.js';
+  import { fleet, createMission, cancelMission, isOperator } from '../lib/fleet.svelte.js';
 
   const MISSION_COLORS = {
     PENDING: '#8a9a93',
@@ -70,6 +70,7 @@
   const time = (iso) => new Date(iso).toLocaleTimeString('es-ES');
 </script>
 
+{#if isOperator()}
 <div class="card">
   <h2>Nueva misión</h2>
   <form onsubmit={submit}>
@@ -94,6 +95,13 @@
   </form>
   {#if error}<p class="error" role="alert">{error}</p>{/if}
 </div>
+{:else}
+<div class="card readonly">
+  <h2>Rol de consulta</h2>
+  <p class="muted">Puedes ver la planta, las órdenes y el historial. Crear, cancelar o
+    reenviar órdenes y actuar sobre palets y robots requiere el rol de operador.</p>
+</div>
+{/if}
 
 <div class="card">
   <div class="list-head">
@@ -121,7 +129,7 @@
             <span class="prio p{m.priority}" title="Prioridad {m.priority}">P{m.priority}</span>
             <strong>{m.origin} → {m.destination}</strong>
             <span class="badge" style="background:{MISSION_COLORS[m.state]}">{m.state}</span>
-            {#if CANCELLABLE.includes(m.state)}
+            {#if CANCELLABLE.includes(m.state) && isOperator()}
               <button class="danger small" onclick={() => cancel(m.id)}>Cancelar</button>
             {/if}
           </div>

@@ -17,7 +17,23 @@ export const fleet = $state({
   selectedRobot: null,
   lastUpdate: null,
   missionsVersion: 0,  // se incrementa cuando llegan cambios de misiones (el historial se refresca)
+  user: null,          // { username, role, display_name } con sesión iniciada
+  authMessage: '',     // p. ej. "Sesión caducada" al volver a la pantalla de login
 });
+
+// --------------------------------------------------------------- sesión
+// El token se guarda en sessionStorage: sobrevive a recargar la página pero no
+// a cerrar la pestaña. Las acciones las protege el backend (401 / 403); el
+// frontend solo oculta lo que el rol no puede hacer.
+const TOKEN_KEY = 'nexus-lite-token';
+let token = null;
+try {
+  token = sessionStorage.getItem(TOKEN_KEY);
+} catch {
+  token = null;
+}
+
+export const isOperator = () => fleet.user?.role === 'OPERATOR';
 
 // Colores de estado armonizados con el verde corporativo (CHARGING = verde marca).
 export const ROBOT_COLORS = {
@@ -91,9 +107,10 @@ function scheduleReconnect() {
 
 export function connect() {
   clearInterval(countdownTimer);
+  if (!token) return;                 // sin sesión no hay tiempo real
   fleet.connection = 'connecting';
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
 
   ws.onopen = () => {
     fleet.connection = 'online';
@@ -102,7 +119,7 @@ export function connect() {
   ws.onmessage = onMessage;
   ws.onclose = () => {
     fleet.connection = 'offline';
-    scheduleReconnect();
+    if (token) scheduleReconnect();   // tras cerrar sesión no se reintenta
   };
   // onerror siempre va seguido de onclose: la reconexión se gestiona allí.
   ws.onerror = () => {};
@@ -118,15 +135,16 @@ export function reconnectNow() {
 async function request(method, url, body, withResponse = false) {
   let res;
   try {
-    res = await fetch(url, {
-      method,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    const headers = body ? { 'Content-Type': 'application/json' } : {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
   } catch {
     throw new Error('No se puede contactar con el backend');
   }
   const data = await res.json().catch(() => null);
+  if (res.status === 401 && token) {
+    logout('Tu sesión ha caducado. Vuelve a iniciar sesión.');
+  }
   if (!res.ok) {
     // FastAPI devuelve {detail: "..."} o {detail: [{msg: ...}]} en los 422
     const d = data?.detail;
@@ -195,4 +213,52 @@ export async function resetRobot(robotId) {
 
 export async function fetchTelemetry(robotId, minutes = 10, every = 5) {
   return request('GET', `/api/v1/robots/${robotId}/telemetry?minutes=${minutes}&every=${every}`);
+}
+
+// --------------------------------------------------------------- sesión
+export async function login(username, password) {
+  const r = await request('POST', '/api/v1/auth/login', { username, password });
+  token = r.token;
+  try {
+    sessionStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    /* sin almacenamiento: la sesión dura lo que la pestaña abierta */
+  }
+  fleet.user = { username: r.username, role: r.role, display_name: r.display_name };
+  fleet.authMessage = '';
+  return fleet.user;
+}
+
+/** Recupera la sesión guardada (al recargar la página). */
+export async function restoreSession() {
+  if (!token) return null;
+  try {
+    fleet.user = await request('GET', '/api/v1/auth/me');
+  } catch {
+    fleet.user = null;
+  }
+  return fleet.user;
+}
+
+export function logout(message = '') {
+  token = null;
+  try {
+    sessionStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* nada */
+  }
+  clearTimeout(retryTimer);
+  clearInterval(countdownTimer);
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+    ws = null;
+  }
+  fleet.user = null;
+  fleet.authMessage = message;
+  fleet.connection = 'connecting';
+  fleet.robots = {};
+  fleet.missions = {};
+  fleet.stations = {};
+  fleet.selectedRobot = null;
 }

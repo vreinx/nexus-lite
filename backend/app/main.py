@@ -3,9 +3,10 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Callable
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect, status
 
-from app.api import router
+from app.api import auth_router, router
+from app.auth import decode_token, require_user
 from app.map_config import load_map
 from app.realtime import ConnectionManager, encode
 from app.repository import MissionRepository, MongoMissionRepository
@@ -53,7 +54,7 @@ def create_app(
     async def health():
         return {"status": "ok"}
 
-    @app.get("/api/v1/map", tags=["mapa"])
+    @app.get("/api/v1/map", tags=["mapa"], dependencies=[Depends(require_user)])
     async def get_map():
         """Configuración del mapa: cuadrícula, estaciones y robots iniciales."""
         return app.state.map
@@ -62,7 +63,11 @@ def create_app(
 
     @app.websocket("/ws")
     async def ws_endpoint(ws: WebSocket):
-        """B-04: snapshot al conectar y después solo los cambios."""
+        """B-04: snapshot al conectar y después solo los cambios.
+        Requiere sesión: ?token=<token> (operador o consulta)."""
+        if decode_token(ws.query_params.get("token", "")) is None:
+            await ws.close(code=status.WS_1008_POLICY_VIOLATION)   # sin sesión: se rechaza
+            return
         await ws.accept()
         service: FleetService = app.state.service
         # Con el candado: entre el snapshot y el alta no se cuela ningún update.
@@ -78,6 +83,7 @@ def create_app(
         finally:
             app.state.ws_clients.remove(ws)
 
+    app.include_router(auth_router)
     app.include_router(router)
     return app
 

@@ -1,4 +1,5 @@
 """Tests de la API (B-01, B-07) con repositorio en memoria y sin bucle de simulación."""
+from tests.conftest import login_as
 import pytest
 from fastapi.testclient import TestClient
 
@@ -11,6 +12,7 @@ from app.telemetry import InMemoryTelemetryStore
 def client():
     app = create_app(InMemoryMissionRepository, run_simulation=False, telemetry_factory=InMemoryTelemetryStore)
     with TestClient(app) as c:
+        login_as(c, "operador")
         yield c
 
 
@@ -76,7 +78,8 @@ def test_robots(client):
 
 def test_websocket_snapshot_y_updates(client):
     mid = crear(client, "P3", "D2", 1).json()["id"]
-    with client.websocket_connect("/ws") as ws:
+    token = client.headers["Authorization"].split()[1]
+    with client.websocket_connect(f"/ws?token={token}") as ws:
         snap = ws.receive_json()
         assert snap["type"] == "snapshot"
         assert len(snap["robots"]) == 5

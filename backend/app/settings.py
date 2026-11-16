@@ -13,5 +13,11 @@ class Settings(BaseSettings):
     influx_org: str = "andyor"
     influx_bucket: str = "telemetry"
 
+    # Autenticación (extra). Valores de desarrollo: cambiarlos fuera del ejercicio.
+    auth_secret: str = "nexus-lite-dev-secret-cambiar-en-produccion"
+    token_hours: int = 8
+    operator_password: str = "operador"
+    viewer_password: str = "consulta"
+
 
 settings = Settings()

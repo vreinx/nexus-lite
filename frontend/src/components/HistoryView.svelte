@@ -1,7 +1,7 @@
 <script>
   // Historial de órdenes: filtros, paginación, exportar a CSV y reenviar las
   // FAILED / CANCELLED (como misión nueva, opcionalmente a un robot concreto).
-  import { fleet, fetchMissions, retryMission } from '../lib/fleet.svelte.js';
+  import { fleet, fetchMissions, retryMission, isOperator } from '../lib/fleet.svelte.js';
   import { formatDuration as duration } from '../lib/logic.js';
 
   const STATES = ['PENDING', 'ASSIGNED', 'IN_PROGRESS', 'DONE', 'CANCELLED', 'FAILED'];
@@ -236,7 +236,7 @@
                 {/if}
               </td>
               <td>
-                {#if m.state === 'FAILED' || m.state === 'CANCELLED'}
+                {#if (m.state === 'FAILED' || m.state === 'CANCELLED') && isOperator()}
                   <button class="small" onclick={() => openRetry(m)}>Reenviar</button>
                 {/if}
               </td>

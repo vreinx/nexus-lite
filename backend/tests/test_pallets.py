@@ -1,4 +1,5 @@
 """Palets: solo se mueve lo que existe y solo se deja donde hay sitio."""
+from tests.conftest import login_as
 import pytest
 
 from app.domain.models import MissionState, RobotState
@@ -102,6 +103,7 @@ def client():
     app = create_app(InMemoryMissionRepository, run_simulation=False,
                      telemetry_factory=InMemoryTelemetryStore)
     with TestClient(app) as c:
+        login_as(c, "operador")
         yield c
 
 

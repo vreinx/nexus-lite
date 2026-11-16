@@ -1,4 +1,5 @@
 """Acciones de operador (forzar ERROR, rearmar, retirar palet) y rutas A*."""
+from tests.conftest import login_as
 import pytest
 from fastapi.testclient import TestClient
 
@@ -158,6 +159,7 @@ def client():
     app = create_app(InMemoryMissionRepository, run_simulation=False,
                      telemetry_factory=InMemoryTelemetryStore)
     with TestClient(app) as c:
+        login_as(c, "operador")
         yield c
 
 

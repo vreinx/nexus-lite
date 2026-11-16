@@ -60,3 +60,34 @@ describe('MissionPopover: palets', () => {
     expect(screen.getByText(/ocupado/)).toBeTruthy();   // D2 aún tiene el palet entregado
   });
 });
+
+import LoginView from './LoginView.svelte';
+import MissionPanel from './MissionPanel.svelte';
+
+describe('Inicio de sesión y roles', () => {
+  it('la pantalla de login explica los dos usuarios y sus roles', () => {
+    render(LoginView, { onlogin: () => {} });
+    expect(screen.getByText('Iniciar sesión')).toBeTruthy();
+    expect(screen.getByText('operador / operador')).toBeTruthy();
+    expect(screen.getByText('consulta / consulta')).toBeTruthy();
+  });
+  it('operador: ve el formulario para crear órdenes', () => {
+    fleet.map = MAP;
+    fleet.user = { username: 'operador', role: 'OPERATOR', display_name: 'Operador' };
+    render(MissionPanel);
+    expect(screen.getByText('Nueva misión')).toBeTruthy();
+  });
+  it('consulta: no puede crear ni cancelar órdenes', () => {
+    fleet.map = MAP;
+    fleet.user = { username: 'consulta', role: 'VIEWER', display_name: 'Consulta' };
+    fleet.missions = {
+      m1: { id: 'm1aaaaaa', origin: 'P1', destination: 'D1', priority: 1, state: 'PENDING',
+            created_at: '2026-11-16T10:00:00Z', robot_id: null },
+    };
+    render(MissionPanel);
+    expect(screen.queryByText('Nueva misión')).toBeNull();
+    expect(screen.getByText('Rol de consulta')).toBeTruthy();
+    expect(screen.queryByText('Cancelar')).toBeNull();     // ve la orden pero sin botón
+    expect(screen.getByText(/P1 → D1/)).toBeTruthy();
+  });
+});

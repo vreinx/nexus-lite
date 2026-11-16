@@ -29,3 +29,13 @@ def mission(mid: str, origin="P1", dest="D1", priority=2, minutes=0) -> Mission:
 @pytest.fixture
 def make_sim():
     return build_sim
+
+
+def login_as(client, username: str) -> str:
+    """Inicia sesión por la API y deja el token en las cabeceras del cliente."""
+    from app.settings import settings
+    password = settings.operator_password if username == "operador" else settings.viewer_password
+    token = client.post("/api/v1/auth/login",
+                        json={"username": username, "password": password}).json()["token"]
+    client.headers["Authorization"] = f"Bearer {token}"
+    return token
