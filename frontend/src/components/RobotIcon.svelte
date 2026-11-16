@@ -9,10 +9,12 @@
   //   - Resto: flecha que indica el sentido de marcha.
   import { ROBOT_COLORS } from '../lib/fleet.svelte.js';
 
-  let { state = 'IDLE', angle = 0 } = $props();
+  // loaded: lleva un palet encima (también si está en ERROR o cargando batería
+  // con el palet a bordo, a la espera de terminar la entrega).
+  let { state = 'IDLE', angle = 0, loaded = null } = $props();
 
   let color = $derived(ROBOT_COLORS[state] ?? '#9aa8a1');
-  let carrying = $derived(['LOADING', 'TO_DROP', 'UNLOADING'].includes(state));
+  let carrying = $derived(loaded ?? ['LOADING', 'TO_DROP', 'UNLOADING'].includes(state));
   let handling = $derived(state === 'LOADING' || state === 'UNLOADING');
 </script>
 
@@ -45,6 +47,14 @@
       <rect x="-10" y="-8" width="16" height="16" rx="2" fill="#d6a46c" stroke="#8b5a2b" stroke-width="1.2" />
       <rect x="-10" y="-1.2" width="16" height="2.4" fill="#f1d3a8" />
     </g>
+    {#if state === 'ERROR'}
+      <!-- avería con el palet a bordo: entrega en pausa -->
+      <path d="M -2 -6 L 3 3 L -7 3 Z" fill="#d1495b" stroke="#fff" stroke-width="1.2" stroke-linejoin="round" />
+      <path d="M -2 -3 L -2 0 M -2 1.6 L -2 1.7" stroke="#fff" stroke-width="1.3" stroke-linecap="round" />
+    {:else if state === 'CHARGING' || state === 'TO_CHARGER'}
+      <path class:pulse={state === 'CHARGING'} d="M -1 -6 L -5 0 L -2 0 L -3 5 L 2 -1 L -1 -1 Z"
+            fill="#fde68a" stroke="#8a5a14" stroke-width="0.9" stroke-linejoin="round" />
+    {/if}
   {:else}
     <rect x="-10" y="-8" width="16" height="16" rx="3" fill="#fff" opacity="0.25" />
     {#if state === 'CHARGING'}

@@ -129,17 +129,29 @@ def test_validacion_de_mision(make_sim, origin, dest, priority):
         make_sim().add_mission(mission("m1", origin, dest, priority))
 
 
-def test_bateria_agotada_en_ruta_robot_error_y_mision_failed(make_sim):
+def test_bateria_agotada_yendo_a_recoger_la_orden_se_reasigna(make_sim):
     # La asignación ya evita este caso; lo forzamos a mano (p. ej. consumo real
-    # mayor del previsto) para comprobar que el robot pasa a ERROR y la misión a FAILED.
+    # mayor del previsto). Aún no llevaba el palet: la orden vuelve a PENDING.
     sim = make_sim(robots=[{"id": "R1", "x": 19, "y": 11, "battery": 2}])
     sim.add_mission(mission("m1"))
     m, r = sim.missions["m1"], sim.robots["R1"]
     m.state, m.robot_id = MissionState.ASSIGNED, "R1"
     r.state, r.mission_id, r.target = RobotState.TO_PICKUP, "m1", (0, 1)
-    run_until(sim, lambda: sim.robots["R1"].state == RobotState.ERROR)
-    assert sim.missions["m1"].state == MissionState.FAILED
-    assert sim.robots["R1"].battery == 0
+    run_until(sim, lambda: r.state == RobotState.ERROR)
+    assert r.battery == 0 and r.mission_id is None
+    assert m.state == MissionState.PENDING and m.robot_id is None
+
+
+def test_bateria_agotada_con_el_palet_a_bordo_pausa_la_orden(make_sim):
+    sim = make_sim(robots=[{"id": "R1", "x": 5, "y": 3, "battery": 1}])
+    sim.add_mission(mission("m1", "P1", "D1"))
+    m, r = sim.missions["m1"], sim.robots["R1"]
+    del sim.pallets["P1"]                          # el palet ya va en el robot
+    m.state, m.robot_id = MissionState.IN_PROGRESS, "R1"
+    r.state, r.mission_id, r.target = RobotState.TO_DROP, "m1", (19, 3)
+    run_until(sim, lambda: r.state == RobotState.ERROR)
+    assert m.state == MissionState.IN_PROGRESS and r.mission_id == "m1"
+    assert "en pausa" in m.reason
 
 
 def test_drain_changes_devuelve_solo_lo_cambiado(make_sim):

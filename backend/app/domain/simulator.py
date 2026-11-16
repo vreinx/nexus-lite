@@ -121,51 +121,106 @@ class FleetSimulator:
 
     # ------------------------------------------------------------- operador
     def force_error(self, robot_id: str, reason: str = "forzado por el operador") -> None:
-        """Pasa un robot a ERROR (avería). Su orden:
-          - si aún no lleva el palet (va a recoger o lo está cargando), vuelve a
-            PENDING y se reasigna a otro robot;
-          - si ya lo lleva a bordo, pasa a FAILED: hay que revisar el palet.
-        """
+        """Pasa un robot a ERROR (avería). Ver _break_down para su orden."""
         r = self.robots[robot_id]                       # KeyError -> 404
         if r.state == RobotState.ERROR:
             raise MissionError(f"{robot_id} ya está en ERROR")
+        self._break_down(r, reason)
+
+    def is_carrying(self, r: Robot) -> bool:
+        """El robot lleva un palet encima (ya lo ha recogido y aún no lo ha entregado)."""
+        if not r.mission_id:
+            return False
+        m = self.missions[r.mission_id]
+        return m.state == MissionState.IN_PROGRESS and r.state != RobotState.LOADING
+
+    def _break_down(self, r: Robot, reason: str) -> None:
+        """Avería (forzada o batería agotada). Su orden:
+          - si aún no lleva el palet (va a recogerlo o lo está cargando), vuelve
+            a PENDING y la coge otro robot: el palet sigue en el origen;
+          - si ya lo lleva a bordo, la orden queda EN PAUSA (sigue IN_PROGRESS y
+            asignada a este robot). Al rearmarlo, termina la entrega.
+        """
         if r.mission_id:
             m = self.missions[r.mission_id]
-            if r.state in (RobotState.TO_DROP, RobotState.UNLOADING):
-                m.state = MissionState.FAILED
-                m.reason = f"{robot_id} en ERROR con el palet a bordo ({reason}): revisar y reenviar"
+            if self.is_carrying(r):
+                m.reason = f"en pausa: {r.id} en ERROR con el palet a bordo ({reason}); se reanuda al rearmarlo"
             else:
                 m.state, m.robot_id = MissionState.PENDING, None
-                m.reason = f"reasignada: {robot_id} pasó a ERROR ({reason})"
+                m.reason = f"reasignada: {r.id} pasó a ERROR ({reason})"
+                r.mission_id = None
             self._touch_mission(m)
             self._touch_station(m.origin)
         self.charger_slots.pop(r.id, None)
         if r.id in self.charger_queue:
             self.charger_queue.remove(r.id)
-        r.state, r.mission_id, r.target, r.waiting, r.path = RobotState.ERROR, None, None, False, None
+        r.state, r.target, r.waiting, r.path = RobotState.ERROR, None, False, None
         self._touch_robot(r)
 
     def reset_robot(self, robot_id: str) -> None:
         """Rearma un robot en ERROR.
-          - Con batería suficiente vuelve a IDLE donde está.
-          - Con batería baja o agotada, el operario lo lleva a mano a una plaza
-            libre de C1 y queda cargando. Si no hay plaza libre, no se puede.
+          - Si lleva un palet y le llega la batería para entregarlo (y volver a
+            C1), retoma la entrega. Si no le llega, carga primero en C1 con el
+            palet encima y después la retoma.
+          - Sin palet: con batería suficiente vuelve a IDLE donde está; con poca,
+            el operario lo lleva a una plaza libre de C1 y queda cargando.
+          - Si necesita cargar y no hay plaza libre en C1, no se puede rearmar.
         """
         r = self.robots[robot_id]
         if r.state != RobotState.ERROR:
             raise MissionError(f"{robot_id} no está en ERROR")
-        if r.battery >= self.p.low_battery_threshold:
-            r.state = RobotState.IDLE
+
+        if r.mission_id:
+            m = self.missions[r.mission_id]
+            dest = self._station_pos(m.destination)
+            need = (manhattan(r.pos, dest) + manhattan(dest, self.charger_bays[0])) * self.p.battery_per_cell
+            enough = r.battery - need >= BATTERY_RESERVE
         else:
+            enough = r.battery >= self.p.low_battery_threshold
+
+        if not enough:
             others = {o.pos for o in self.robots.values() if o is not r}
             bay = self._free_bay(r.pos, r.id)
             if bay is None or bay in others:
                 raise MissionError("batería baja y no hay plaza libre en C1 para llevarlo a cargar")
-            r.x, r.y = bay
+            r.x, r.y = bay                        # el operario lo lleva a mano a C1
             r.state, r.target = RobotState.TO_CHARGER, bay
-            self.charger_slots[r.id] = bay       # en el siguiente tick -> CHARGING
+            self.charger_slots[r.id] = bay        # en el siguiente tick -> CHARGING
+        elif r.mission_id:
+            self._resume_delivery(r)
+        else:
+            r.state = RobotState.IDLE
         r.blocked_ticks, r.hold_ticks = 0, 0
         self._touch_robot(r)
+
+    def _resume_delivery(self, r: Robot) -> None:
+        """El robot lleva un palet: retoma el camino al destino de su orden."""
+        m = self.missions[r.mission_id]
+        r.state, r.target = RobotState.TO_DROP, self._station_pos(m.destination)
+        m.reason = f"reanudada: {r.id} retoma la entrega"
+        self._touch_mission(m)
+        self._touch_robot(r)
+
+    def reattach_carrying(self, m: Mission, robot_id: str) -> bool:
+        """Tras un reinicio: el robot que llevaba el palet recupera su orden.
+        Si estaba en ERROR, la orden queda en pausa hasta rearmarlo; si no,
+        continúa la entrega. Devuelve False si el robot no existe."""
+        r = self.robots.get(robot_id)
+        if r is None or r.mission_id is not None:
+            return False
+        self.missions[m.id] = m
+        m.state, m.robot_id = MissionState.IN_PROGRESS, r.id
+        r.mission_id = m.id
+        if r.state == RobotState.ERROR:
+            m.reason = f"en pausa: {r.id} en ERROR con el palet a bordo; se reanuda al rearmarlo"
+            self._touch_mission(m)
+        elif r.state in (RobotState.TO_CHARGER, RobotState.CHARGING):
+            m.reason = f"reanudada tras reinicio: {r.id} carga y después entrega"
+            self._touch_mission(m)
+        else:
+            self._resume_delivery(r)
+            m.reason = f"reanudada tras reinicio: {r.id} continúa con el palet a bordo"
+        return True
 
     # ------------------------------------------------------------------ misiones
     def add_mission(self, m: Mission) -> None:
@@ -352,8 +407,11 @@ class FleetSimulator:
             r.battery = min(self.p.charge_target, r.battery + self.p.charge_per_second)
             self._touch_robot(r)
             if r.battery >= self.p.charge_target:
-                r.state, r.target = RobotState.IDLE, None
                 self.charger_slots.pop(r.id, None)
+                if r.mission_id:
+                    self._resume_delivery(r)      # cargó con el palet encima: a entregarlo
+                else:
+                    r.state, r.target = RobotState.IDLE, None
 
     def _arrive(self, r: Robot) -> None:
         r.waiting, r.blocked_ticks, r.path = False, 0, None
@@ -396,15 +454,8 @@ class FleetSimulator:
         self._touch_robot(r)
 
     def _fail_robot(self, r: Robot, reason: str) -> None:
-        if r.mission_id:
-            m = self.missions[r.mission_id]
-            m.state, m.reason = MissionState.FAILED, reason
-            self._touch_mission(m)
-        self.charger_slots.pop(r.id, None)
-        if r.id in self.charger_queue:
-            self.charger_queue.remove(r.id)
-        r.state, r.mission_id, r.target, r.waiting = RobotState.ERROR, None, None, False
-        self._touch_robot(r)
+        """Batería agotada en ruta: misma política que una avería (_break_down)."""
+        self._break_down(r, reason)
 
     # -------------------------------------------------------------------- Tráfico
     # Reglas (dos robots nunca comparten celda):

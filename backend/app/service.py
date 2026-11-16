@@ -80,6 +80,9 @@ class FleetService:
     async def restore(self) -> None:
         """B-06: recupera el estado tras un reinicio.
 
+        Si una orden estaba en curso con el palet ya a bordo, el robot (restaurado
+        de la base de datos) la recupera y termina la entrega.
+
         Robots: vuelven a la posición, batería y estado guardados en Mongo
         (ver FleetSimulator.restore_robots).
         Misiones: las ASSIGNED e IN_PROGRESS vuelven a PENDING y se reasignan;
@@ -99,8 +102,11 @@ class FleetService:
         invalid: list[Mission] = []
         for m in active:
             if m.state == MissionState.IN_PROGRESS and m.origin not in self.sim.pallets:
-                # El robot ya había recogido el palet: no sabemos dónde ha quedado.
-                # El operador lo revisa, declara el palet y reenvía la orden.
+                # El robot ya había recogido el palet: lo sigue llevando encima.
+                # Recupera su orden y la termina (o queda en pausa si está en ERROR).
+                if m.robot_id in restored_robots and self.sim.reattach_carrying(m, m.robot_id):
+                    continue
+                # Sin el estado del robot no sabemos dónde está el palet: a revisar.
                 m.state, m.updated_at = MissionState.FAILED, self.clock()
                 m.reason = f"interrumpida por reinicio con el palet a bordo de {m.robot_id}: revisar y reenviar"
                 invalid.append(m)

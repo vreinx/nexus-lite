@@ -45,7 +45,7 @@ def test_reinicio_reencola_misiones_activas_y_no_pierde_ninguna():
     assert stored["mapa_viejo"].state == MissionState.FAILED    # estación que ya no existe
     assert "no válida" in stored["mapa_viejo"].reason
 
-    # Con el palet a bordo no se puede reencolar: queda FAILED para que se revise
+    # Robot sin estado guardado (no restaurado): no sabemos dónde está el palet
     assert stored["a_bordo"].state == MissionState.FAILED
     assert "palet a bordo" in stored["a_bordo"].reason
 
@@ -140,3 +140,34 @@ def test_reinicio_robot_en_error_sigue_en_error_y_el_que_cargaba_sigue_cargando(
     assert robots["R1"].state == RobotState.ERROR and robots["R1"].pos == (3, 3)
     assert robots["R2"].state == RobotState.CHARGING and robots["R2"].battery > 40
     assert robots["R3"].pos == (8, 6) and robots["R3"].battery == 100   # posición de map.json
+
+
+
+def test_reinicio_el_robot_con_el_palet_a_bordo_termina_la_entrega():
+    from app.domain.models import RobotState
+    repo = InMemoryMissionRepository([_mision("a_bordo", MissionState.IN_PROGRESS, origin="P4")])
+    repo.stations = {"P4": False}                                     # el palet va en R1
+    repo.robots = {"R1": {"_id": "R1", "x": 10, "y": 5, "battery": 80.0, "state": "TO_DROP"}}
+    service = FleetService(build_sim().cfg, repo)
+
+    async def scenario():
+        await service.start(run_loop=False)
+        r = service.sim.robots["R1"]
+        assert r.mission_id == "a_bordo" and r.state == RobotState.TO_DROP
+        for _ in range(60):
+            await service.step()
+        return await repo.get("a_bordo")
+
+    assert asyncio.run(scenario()).state == MissionState.DONE
+
+
+def test_reinicio_robot_en_error_con_palet_queda_en_pausa():
+    from app.domain.models import RobotState
+    repo = InMemoryMissionRepository([_mision("a_bordo", MissionState.IN_PROGRESS, origin="P4")])
+    repo.stations = {"P4": False}
+    repo.robots = {"R1": {"_id": "R1", "x": 10, "y": 5, "battery": 80.0, "state": "ERROR"}}
+    service = FleetService(build_sim().cfg, repo)
+    asyncio.run(service.start(run_loop=False))
+    r, m = service.sim.robots["R1"], service.sim.missions["a_bordo"]
+    assert r.state == RobotState.ERROR and r.mission_id == "a_bordo"
+    assert m.state == MissionState.IN_PROGRESS and "en pausa" in m.reason

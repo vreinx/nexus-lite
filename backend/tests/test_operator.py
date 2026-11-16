@@ -59,15 +59,46 @@ def test_error_antes_de_recoger_reasigna_la_orden(make_sim):
     assert m.robot_id == "R2"                      # la coge otro robot
 
 
-def test_error_con_el_palet_a_bordo_falla_la_orden(make_sim):
+def test_error_con_el_palet_a_bordo_pausa_y_al_rearmar_termina_la_entrega(make_sim):
     sim = make_sim(robots=[{"id": "R1", "x": 0, "y": 2}])
     sim.add_mission(mission("m1", "P1", "D1"))
-    run_until(sim, lambda: sim.robots["R1"].state == RobotState.TO_DROP)
+    r, m = sim.robots["R1"], sim.missions["m1"]
+    run_until(sim, lambda: r.state == RobotState.TO_DROP)
+    for _ in range(3):
+        sim.tick()
     sim.force_error("R1")
-    assert sim.missions["m1"].state == MissionState.FAILED
-    assert "palet a bordo" in sim.missions["m1"].reason
+
+    # En pausa: el robot conserva la orden y el palet
+    assert r.state == RobotState.ERROR and r.mission_id == "m1"
+    assert m.state == MissionState.IN_PROGRESS and "en pausa" in m.reason
+    assert sim.is_carrying(r)
+    for _ in range(5):
+        sim.tick()
+    assert m.state == MissionState.IN_PROGRESS and r.state == RobotState.ERROR   # sigue parado
     with pytest.raises(MissionError):
         sim.force_error("R1")                      # ya está en ERROR
+
+    # Al rearmar retoma la entrega y la termina (no va al parking)
+    sim.reset_robot("R1")
+    assert r.state == RobotState.TO_DROP
+    run_until(sim, lambda: m.state == MissionState.DONE)
+    assert r.pos == (19, 3) and "D1" in sim.pallets    # el palet llega a su destino
+
+
+def test_rearmar_con_palet_y_poca_bateria_carga_y_despues_entrega(make_sim):
+    sim = make_sim(robots=[{"id": "R1", "x": 0, "y": 2}])
+    sim.add_mission(mission("m1", "P1", "D1"))
+    r, m = sim.robots["R1"], sim.missions["m1"]
+    run_until(sim, lambda: r.state == RobotState.TO_DROP)
+    sim.force_error("R1")
+    r.battery = 3                                  # no le llega para entregar y volver a C1
+    sim.reset_robot("R1")
+    assert r.pos in sim.charger_bays and r.mission_id == "m1"
+    run_until(sim, lambda: r.state == RobotState.CHARGING)
+    assert sim.is_carrying(r)                      # carga con el palet encima
+    run_until(sim, lambda: r.state == RobotState.TO_DROP, max_ticks=100)
+    run_until(sim, lambda: m.state == MissionState.DONE)
+    assert "D1" in sim.pallets
 
 
 # ---------------------------------------------------------------- rearmar
