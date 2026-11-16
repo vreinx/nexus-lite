@@ -391,14 +391,9 @@ Lo indico aquí para que quede claro qué es obligatorio y qué es añadido, y p
 
 ## 10. Horas dedicadas y uso de IA
 
-**Horas reales:** [COMPLETAR: número de horas reales].
+**Horas reales:** He empleado un total 7 hora y media aproximadamente, durante 4 días naturales. Donde he tardado unas 6 horas en desarrollar las funciones obligatorias, 1 hora en las opcionales y poco más de media hora en generar toda la documentación requerida.
 
-[COMPLETAR: en una o dos frases, cuántas de esas horas fueron el núcleo obligatorio y cuántas los añadidos de la sección 8.]
-
-**Uso de IA:** [REVISAR Y AJUSTAR a cómo lo has usado de verdad. Propuesta:]
-
-He usado un asistente de IA (Claude) durante todo el desarrollo:
-
+**Uso de IA:** He usado un asistente de IA (Claude) durante todo el desarrollo:
 - **Cómo lo he usado:** para generar buena parte del código a partir de mis indicaciones, escribir tests, revisar casos límite y redactar documentación.
 - **Las decisiones de diseño y de negocio son mías** (las de la sección 7): qué hacer con las órdenes al reiniciar, que un robot esperando carga no pueda coger órdenes, que nunca coincidan dos robots en una celda y quién cede el paso, la lógica de palets, que un robot averiado con un palet termine la entrega al rearmarlo…
 - **Errores que detecté al probar** y que se corrigieron:
