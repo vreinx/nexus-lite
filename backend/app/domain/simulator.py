@@ -592,6 +592,10 @@ class FleetSimulator:
 
     def _move_to(self, r: Robot, cell: Pos, occupied: dict[Pos, Robot]) -> None:
         del occupied[r.pos]
+        # La ruta se calculó antes de moverse: se le quita la celda que acaba de
+        # pisar para que sea la ruta que le queda. Si se ha salido de ella (se
+        # aparta o rodea a otro robot), se recalcula en el siguiente tick.
+        r.path = r.path[1:] if r.path and r.path[0] == cell else None
         r.x, r.y = cell
         occupied[cell] = r
         r.blocked_ticks, r.waiting = 0, False

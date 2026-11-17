@@ -19,6 +19,18 @@ describe('nextHeading', () => {
     expect(nextHeading(350, { x: 0, y: 0, path: [[1, 0]] })).toBe(360);
     expect(nextHeading(-90, { x: 0, y: 5, path: [[0, 4]] })).toBe(-90);
   });
+  it('al avanzar mira en el sentido del movimiento: gira en la curva', () => {
+    // Venía hacia la izquierda por la fila 2 y acaba de subir a (0, 1) con el palet
+    const r = { x: 0, y: 1, state: 'TO_DROP', target: [19, 3], path: [[1, 1], [2, 1]] };
+    expect(nextHeading(180, r, [0, 2])).toBe(90 + 180);   // arriba (-90°), por el camino corto
+    // Siguiente tick: avanza a la derecha
+    expect(nextHeading(270, { ...r, x: 1 }, [0, 1])).toBe(360);
+  });
+  it('si no se ha movido mira a la siguiente celda, ignorando la actual', () => {
+    expect(nextHeading(0, { x: 3, y: 3, path: [[3, 3], [3, 4]] }, [3, 3])).toBe(90);
+    // Un salto de más de una celda (lo mueve el operario) no cuenta como movimiento
+    expect(nextHeading(0, { x: 10, y: 0, path: null, target: [10, 5] }, [3, 3])).toBe(90);
+  });
   it('parado conserva la orientación', () => {
     expect(nextHeading(45, { x: 0, y: 0, target: null })).toBe(45);
   });

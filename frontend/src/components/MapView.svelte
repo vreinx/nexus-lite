@@ -57,8 +57,18 @@
   const py = (y) => (y - view.y) * view.s;
 
   // Orientación de cada robot: hacia su siguiente celda (ver logic.js)
+  // Se recuerda la última posición vista de cada robot para saber hacia dónde
+  // se acaba de mover. Si el robot no ha cambiado (la lista se recalcula por
+  // otro robot), se devuelve la orientación que ya tenía.
   const headings = {};
-  const heading = (r) => (headings[r.id] = nextHeading(headings[r.id] ?? -90, r));
+  const heading = (r) => {
+    const key = `${r.x},${r.y},${r.state},${r.target},${r.path?.[0]}`;
+    const last = headings[r.id];
+    if (last?.key === key) return last.angle;
+    const angle = nextHeading(last?.angle ?? -90, r, last?.pos);
+    headings[r.id] = { key, angle, pos: [r.x, r.y] };
+    return angle;
+  };
 
   // Si varios robots comparten celda, se separan y se encogen un poco para que se vean todos.
   let robots = $derived.by(() => {

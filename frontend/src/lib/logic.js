@@ -3,22 +3,29 @@
 export const batteryColor = (b) => (b < 20 ? '#d1495b' : b < 30 ? '#e0a458' : '#6ca087');
 
 /**
- * Orientación (grados) de un robot: hacia su siguiente celda. 0 = derecha,
- * 90 = abajo (el eje Y del SVG crece hacia abajo). Si está parado conserva la
- * anterior. Acumula el giro por el camino más corto (de 350° a 10° gira +20°,
- * no -340°), para que la animación no dé la vuelta entera.
+ * Orientación (grados) de un robot. 0 = derecha, 90 = abajo (el eje Y del SVG
+ * crece hacia abajo).
+ *   - Si acaba de avanzar una celda (from = su posición anterior), mira en el
+ *     sentido de ese movimiento, que es el que se está animando: así gira al
+ *     tomar la curva, con o sin palet.
+ *   - Si no se ha movido, mira hacia la siguiente celda de su ruta (o hacia
+ *     su destino si no hay ruta). Parado y sin destino conserva la anterior.
+ * Acumula el giro por el camino más corto (de 350° a 10° gira +20°, no -340°),
+ * para que la animación no dé la vuelta entera.
  */
-export function nextHeading(prev, robot) {
-  const next = robot.path?.[0] ?? null;
+export function nextHeading(prev, robot, from = null) {
+  // Sentido de (ax, ay) a (bx, by): primero en X y luego en Y; null si es la misma celda
+  const toward = (ax, ay, bx, by) =>
+    bx !== ax ? (bx > ax ? 0 : 180) : by !== ay ? (by > ay ? 90 : -90) : null;
+
   let target = null;
-  if (next) {
-    const [nx, ny] = next;
-    if (nx !== robot.x) target = nx > robot.x ? 0 : 180;
-    else if (ny !== robot.y) target = ny > robot.y ? 90 : -90;
-  } else if (robot.target) {
-    const [tx, ty] = robot.target;
-    if (robot.x !== tx) target = tx > robot.x ? 0 : 180;
-    else if (robot.y !== ty) target = ty > robot.y ? 90 : -90;
+  const stepped = from && Math.abs(from[0] - robot.x) + Math.abs(from[1] - robot.y) === 1;
+  if (stepped) {
+    target = toward(from[0], from[1], robot.x, robot.y);
+  } else {
+    // Primera celda de la ruta distinta de la actual
+    const next = robot.path?.find(([x, y]) => x !== robot.x || y !== robot.y) ?? robot.target;
+    if (next) target = toward(robot.x, robot.y, next[0], next[1]);
   }
   if (target === null) return prev;
   const delta = ((((target - prev) % 360) + 540) % 360) - 180;

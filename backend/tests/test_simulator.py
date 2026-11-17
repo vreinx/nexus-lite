@@ -260,3 +260,21 @@ def test_robot_esperando_turno_de_carga_no_es_asignable(make_sim):
     r = sim.robots["R1"]
     sim._send_to_charger(r)
     assert not is_eligible(r, 0)   # TO_CHARGER, aunque esté parado en un parking
+
+
+def test_la_ruta_del_robot_es_la_que_le_queda_por_recorrer(make_sim):
+    """path no incluye la celda donde ya está el robot: empieza en la siguiente
+    (el mapa la usa para orientar el robot y dibujar su ruta)."""
+    sim = make_sim()
+    sim.add_mission(mission("m1", "P1", "D1"))
+    sim.tick()                                   # se asigna
+    robot = next(r for r in sim.robots.values() if r.mission_id == "m1")
+    vistos = 0
+    for _ in range(40):
+        sim.tick()
+        if robot.path:
+            vistos += 1
+            paso = robot.path[0]
+            assert abs(paso[0] - robot.x) + abs(paso[1] - robot.y) == 1
+            assert robot.path[-1] == robot.target
+    assert vistos > 10
