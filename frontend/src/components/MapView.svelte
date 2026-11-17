@@ -1,5 +1,9 @@
 <script>
   // F-01: mapa 2D en SVG. Estaciones fijas + robots coloreados por estado.
+  //
+  // El SVG ocupa todo el hueco disponible y dibuja una cuadrícula "infinita".
+  // La planta (la superficie por la que se mueven los robots) se escala y se
+  // centra en la zona libre: la que no tapan los paneles flotantes (insets).
   import { fleet, ROBOT_COLORS, batteryColor, isOperator } from '../lib/fleet.svelte.js';
   import RobotIcon from './RobotIcon.svelte';
   import MissionPopover from './MissionPopover.svelte';
@@ -16,9 +20,41 @@
     PARKING: { fill: '#eef2f0', stroke: '#8a9a93', dash: '3 3', small: true },
   };
 
+  const LEGEND_H = 30; // hueco reservado abajo para la leyenda
+
+  // Píxeles que ocupan los paneles flotantes a cada lado (los pasa App.svelte)
+  let { insets = {} } = $props();
+
   let map = $derived(fleet.map);
   let width = $derived(map.grid.width * C);
   let height = $derived(map.grid.height * C);
+
+  // Tamaño en píxeles del contenedor
+  let boxW = $state(0);
+  let boxH = $state(0);
+  let left = $derived(insets.left ?? 0);
+  let right = $derived(insets.right ?? 0);
+
+  // Parte visible del plano (viewBox) y escala s (píxeles por unidad del SVG).
+  // La planta más su margen cabe entera en la zona libre y queda centrada en ella.
+  let view = $derived.by(() => {
+    const w = width + 2 * MARGIN, h = height + 2 * MARGIN;
+    if (!boxW || !boxH) return { x: -MARGIN, y: -MARGIN, w, h, s: 1 };
+    const top = insets.top ?? 0, bottom = (insets.bottom ?? 0) + LEGEND_H;
+    const freeW = Math.max(boxW - left - right, 80);
+    const freeH = Math.max(boxH - top - bottom, 80);
+    const s = Math.min(freeW / w, freeH / h);
+    return {
+      s,
+      w: boxW / s,
+      h: boxH / s,
+      x: -(left + (freeW - width * s) / 2) / s,
+      y: -(top + (freeH - height * s) / 2) / s,
+    };
+  });
+  // De coordenadas del SVG a píxeles del contenedor
+  const px = (x) => (x - view.x) * view.s;
+  const py = (y) => (y - view.y) * view.s;
 
   // Orientación de cada robot: hacia su siguiente celda (ver logic.js)
   const headings = {};
@@ -47,31 +83,34 @@
   let picker = $state(null);
   let pickerStyle = $derived.by(() => {
     if (!picker) return '';
-    const W = width + 2 * MARGIN, H = height + 2 * MARGIN;
-    const top = ((picker.y * C + MARGIN) / H) * 100;
     // Se abre al lado contrario del borde más cercano para no salirse del mapa
     const side = picker.x < map.grid.width / 2
-      ? `left: ${(((picker.x + 1) * C + MARGIN + 6) / W) * 100}%;`
-      : `right: ${((W - (picker.x * C + MARGIN) + 6) / W) * 100}%;`;
+      ? `left: ${px((picker.x + 1) * C) + 6}px;`
+      : `right: ${boxW - px(picker.x * C) + 6}px;`;
     const vertical = picker.y > map.grid.height / 2
-      ? `bottom: ${100 - ((picker.y + 1) * C + MARGIN) / H * 100}%;`
-      : `top: ${top}%;`;
+      ? `bottom: ${boxH - py((picker.y + 1) * C)}px;`
+      : `top: ${py(picker.y * C)}px;`;
     return side + vertical;
   });
   const openPicker = (s) => (picker = picker?.id === s.id ? null : s);
   const select = (id) => (fleet.selectedRobot = fleet.selectedRobot === id ? null : id);
 </script>
 
-<div class="wrap" class:frozen={fleet.connection !== 'online'}>
-  <svg viewBox="{-MARGIN} {-MARGIN} {width + 2 * MARGIN} {height + 2 * MARGIN}" role="img" aria-label="Mapa de la planta">
+<div class="wrap" class:frozen={fleet.connection !== 'online'}
+     bind:clientWidth={boxW} bind:clientHeight={boxH}>
+  <svg viewBox="{view.x} {view.y} {view.w} {view.h}" role="img" aria-label="Mapa de la planta">
+    <defs>
+      <!-- Una celda de la cuadrícula; las líneas caen en los bordes de celda -->
+      <pattern id="floor-grid" x={C / 2} y={C / 2} width={C} height={C} patternUnits="userSpaceOnUse">
+        <path d="M {C / 2} 0 V {C} M 0 {C / 2} H {C}" class="grid" />
+      </pattern>
+    </defs>
+    <!-- Fondo "infinito" y, encima, la superficie de la planta -->
+    <rect x={view.x} y={view.y} width={view.w} height={view.h} class="outside"
+          onclick={() => (picker = null)} role="presentation" />
     <rect x="0" y="0" {width} {height} class="floor" onclick={() => (picker = null)} role="presentation" />
-    <!-- Cuadrícula -->
-    {#each { length: map.grid.width + 1 } as _, i}
-      <line x1={i * C} y1="0" x2={i * C} y2={height} class="grid" />
-    {/each}
-    {#each { length: map.grid.height + 1 } as _, j}
-      <line x1="0" y1={j * C} x2={width} y2={j * C} class="grid" />
-    {/each}
+    <rect x={view.x} y={view.y} width={view.w} height={view.h} fill="url(#floor-grid)" pointer-events="none" />
+    <rect x="0" y="0" {width} {height} class="floor-edge" pointer-events="none" />
 
     <!-- Estaciones -->
     {#each map.stations as s}
@@ -153,22 +192,24 @@
   {/if}
 
   {#if fleet.connection !== 'online'}
-    <div class="overlay">Sin conexión en tiempo real: el mapa puede no estar actualizado</div>
+    <div class="overlay" style="left: {left + (boxW - left - right) / 2}px">Sin conexión en tiempo real: el mapa puede no estar actualizado</div>
   {/if}
-</div>
 
-<div class="legend">
-  {#each Object.entries(ROBOT_COLORS) as [state, color]}
-    <span><i style="background:{color}"></i>{state}</span>
-  {/each}
+  <div class="legend" style="left: {left}px; right: {right}px">
+    {#each Object.entries(ROBOT_COLORS) as [state, color]}
+      <span><i style="background:{color}"></i>{state}</span>
+    {/each}
+  </div>
 </div>
 
 <style>
-  .wrap { position: relative; }
-  svg { width: 100%; height: auto; display: block; }
-  .floor { fill: #fafcfb; }
+  .wrap { position: absolute; inset: 0; overflow: hidden; }
+  svg { width: 100%; height: 100%; display: block; }
+  .outside { fill: #eef2f0; }
+  .floor { fill: #fcfdfc; }
+  .floor-edge { fill: none; stroke: #9db3a8; stroke-width: 1.5; }
   .frozen svg { filter: grayscale(0.7); opacity: 0.7; }
-  .grid { stroke: #e3eae6; stroke-width: 1; }
+  .grid { fill: none; stroke: #dde6e1; stroke-width: 1; }
   .station-label { font-size: 13px; font-weight: 700; text-anchor: middle; }
   .station-label.small { font-size: 10px; }
   .station-label.tiny { font-size: 9px; }
@@ -185,9 +226,10 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   .overlay {
-    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    position: absolute; top: 10px; transform: translateX(-50%); white-space: nowrap;
     background: #c2414f; color: #fff; padding: 6px 14px; border-radius: 6px; font-size: 13px;
   }
-  .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 11px; color: var(--muted); }
+  .legend { position: absolute; bottom: 8px; display: flex; flex-wrap: wrap; justify-content: center;
+            gap: 4px 12px; font-size: 11px; color: var(--muted); pointer-events: none; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
 </style>

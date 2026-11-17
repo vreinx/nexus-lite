@@ -155,6 +155,7 @@
   .list-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .list-head h2 { margin: 0; margin-right: auto; }
   .list-head { gap: 6px; }
+  .list-head select { min-width: 0; flex: 0 1 auto; }   /* que quepan en el panel estrecho */
   ul { list-style: none; margin: 0; padding: 0; max-height: 460px; overflow-y: auto; }
   li { padding: 8px 0; border-top: 1px solid var(--border); }
   .row { display: flex; align-items: center; gap: 8px; }

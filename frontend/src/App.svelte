@@ -19,6 +19,17 @@
 
   let checking = $state(true);   // comprobando si hay una sesión guardada
 
+  // Vista de planta: el mapa ocupa toda la pantalla y los paneles flotan
+  // encima, a los lados. Al mapa se le dice cuánto ocupan (insets) para que
+  // centre la planta en la zona libre y ningún panel tape nada.
+  // En pantallas estrechas no hay sitio: los paneles van debajo del mapa.
+  const EDGE = 16;               // separación de los paneles al borde (ver CSS)
+  let innerWidth = $state(1280);
+  let floating = $derived(innerWidth > 1100);
+  let leftW = $state(0);
+  let rightW = $state(0);
+  let insets = $derived(floating ? { left: leftW + EDGE, right: rightW + EDGE } : {});
+
   async function loadMapWithRetry() {
     if (!fleet.user) return;
     try {
@@ -47,11 +58,14 @@
   });
 </script>
 
+<svelte:window bind:innerWidth />
+
 {#if checking}
   <p class="muted" style="padding: 24px">Cargando…</p>
 {:else if !fleet.user}
   <LoginView onlogin={start} />
 {:else}
+<div class="shell" class:fill={view === 'planta' && floating}>
 <header>
   <div class="brand">
     <Logo />
@@ -79,25 +93,26 @@
     {#if fleet.map}<HistoryView />{:else}<p class="muted">Cargando…</p>{/if}
   </main>
 {:else}
-<main>
-  <section class="left">
-    <div class="card map-card">
-      <h2>Planta</h2>
-      {#if fleet.map}
-        <MapView />
-      {:else}
-        <p class="muted">Cargando mapa… {mapError}</p>
-      {/if}
-    </div>
-    <RobotList />
-  </section>
+<main class="stage" class:floating>
+  <div class="map-layer">
+    {#if fleet.map}
+      <MapView {insets} />
+    {:else}
+      <p class="muted loading">Cargando mapa… {mapError}</p>
+    {/if}
+  </div>
 
-  <aside class="right">
+  <aside class="panel left" bind:offsetWidth={leftW}>
+    <RobotList />
+  </aside>
+
+  <aside class="panel right" bind:offsetWidth={rightW}>
     <RobotDetail />
     <MissionPanel />
   </aside>
 </main>
 {/if}
+</div>
 {/if}
 
 <style>
@@ -130,16 +145,32 @@
   .lite { font-weight: 300; margin-left: 5px; color: #a9d1bd; }
   .sub { font-size: 12px; color: #a9c2b6; }
 
-  main {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 400px;
-    gap: 16px;
-    padding: 16px 20px;
-    align-items: start;
-  }
-  .left, .right { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  main { padding: 16px 20px; }
 
-  @media (max-width: 1100px) {
-    main { grid-template-columns: 1fr; }
+  /* Planta en pantalla estrecha: mapa arriba y paneles debajo */
+  .stage { display: flex; flex-direction: column; gap: 16px; }
+  .map-layer {
+    position: relative;
+    aspect-ratio: 3 / 2;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
   }
+  .panel { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .loading { padding: 16px; }
+
+  /* Planta a pantalla completa: mapa de fondo y paneles flotantes a los lados */
+  .shell.fill { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  .stage.floating { flex: 1; min-height: 0; position: relative; display: block; padding: 0; }
+  .stage.floating .map-layer { position: absolute; inset: 0; aspect-ratio: auto; border: none; border-radius: 0; }
+  .stage.floating .panel {
+    position: absolute;
+    top: 16px;           /* = EDGE */
+    max-height: calc(100% - 32px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .stage.floating .left { left: 16px; width: clamp(190px, 15vw, 250px); }
+  .stage.floating .right { right: 16px; width: clamp(320px, 27vw, 400px); }
+  .stage.floating .panel :global(.card) { flex-shrink: 0; box-shadow: 0 6px 20px rgba(30, 59, 50, 0.13); }
 </style>
