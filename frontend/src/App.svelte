@@ -166,11 +166,26 @@
   .stage.floating .panel {
     position: absolute;
     top: 16px;           /* = EDGE */
-    max-height: calc(100% - 32px);
+    bottom: 16px;        /* ocupan todo el costado */
     overflow-y: auto;
     scrollbar-width: thin;
   }
   .stage.floating .left { left: 16px; width: clamp(190px, 15vw, 250px); }
   .stage.floating .right { right: 16px; width: clamp(320px, 27vw, 400px); }
-  .stage.floating .panel :global(.card) { flex-shrink: 0; box-shadow: 0 6px 20px rgba(30, 59, 50, 0.13); }
+  /* Translúcidos: se adivina la cuadrícula del mapa por detrás */
+  .stage.floating .panel :global(.card) {
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.45);
+    border-color: rgba(157, 179, 168, 0.55);
+    box-shadow: 0 6px 20px rgba(30, 59, 50, 0.13);
+  }
+  /* Izquierda: la flota llena el costado, con las tarjetas repartidas en altura */
+  .stage.floating .left :global(.card) { flex: 1 0 auto; display: flex; flex-direction: column; }
+  .stage.floating .left :global(.grid) { flex: 1; align-content: space-between; }
+  .stage.floating .left :global(.robot) { background: rgba(255, 255, 255, 0.5); }
+  /* Derecha: la lista de misiones crece hasta el final del costado */
+  .stage.floating .right :global(.card:last-child) {
+    flex: 1 0 200px; min-height: 0; display: flex; flex-direction: column;
+  }
+  .stage.floating .right :global(.card:last-child ul) { flex: 1 1 0; min-height: 0; max-height: none; }
 </style>
