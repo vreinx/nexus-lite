@@ -387,6 +387,7 @@ Lo indico aquí para que quede claro qué es obligatorio y qué es añadido, y p
 - **Memoria:** purgar del simulador las órdenes terminadas (hoy se quedan en memoria hasta reiniciar).
 - **Más tests:** extremo a extremo (Playwright) contra el `docker compose`, y tests de integración contra MongoDB e InfluxDB reales.
 - **CI** con lint y tests en cada commit.
+- **Opciones** Operaciones sobre los robots desde el sistema, por ejemplo excluir o forzar carga. 
 - **Observabilidad:** métricas de la flota (órdenes por hora, tiempo medio, ocupación de C1, tiempo esperando paso) en un cuadro de mando sobre InfluxDB.
 
 ## 10. Horas dedicadas y uso de IA
