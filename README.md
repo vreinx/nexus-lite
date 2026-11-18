@@ -83,7 +83,7 @@ Conviene usarlo solo para consultar: si se editan documentos con el backend en m
 
 ## 3. Tests
 
-**Backend (pytest, 102 tests).** Con Docker, sin instalar nada:
+**Backend (pytest, 103 tests).** Con Docker, sin instalar nada:
 
 ```bash
 docker compose run --rm --no-deps backend python -m pytest -q
@@ -223,7 +223,7 @@ Definido en `backend/config/map.json`. Si tiene un error (estación fuera de la 
 | **F-03** | Detalle de robot: estado, batería, posición, destino, orden actual e histórico de batería |
 | **F-04** | Indicador *En vivo / Conectando / Sin conexión* con cuenta atrás; reconexión automática (1, 2, 4… hasta 10 s) y mapa en gris mientras no hay conexión |
 | Docker | `docker compose up` levanta todo sin pasos manuales |
-| Tests | Asignación, API y bastante más: 102 en backend y 22 en frontend |
+| Tests | Asignación, API y bastante más: 103 en backend y 22 en frontend |
 | Contrato | OpenAPI automático en `/docs` y tabla en este README |
 
 **Extras opcionales del enunciado que he hecho:**
