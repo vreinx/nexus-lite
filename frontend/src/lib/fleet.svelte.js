@@ -45,6 +45,7 @@ export const ROBOT_COLORS = {
   TO_CHARGER: '#5fb3a1',
   CHARGING: '#6ca087',
   ERROR: '#d1495b',
+  PAUSED: '#5d6b78',
 };
 
 import { missionQuery } from './logic.js';
@@ -207,6 +208,19 @@ export async function forceError(robotId) {
 
 export async function resetRobot(robotId) {
   const r = await request('POST', `/api/v1/robots/${robotId}/reset`);
+  applyRobots([r]);
+  return r;
+}
+
+// Pausar: el robot queda excluido de las órdenes hasta reanudarlo
+export async function pauseRobot(robotId) {
+  const r = await request('POST', `/api/v1/robots/${robotId}/pause`);
+  applyRobots([r]);
+  return r;
+}
+
+export async function resumeRobot(robotId) {
+  const r = await request('POST', `/api/v1/robots/${robotId}/resume`);
   applyRobots([r]);
   return r;
 }

@@ -17,6 +17,7 @@ class RobotState(str, Enum):
     TO_CHARGER = "TO_CHARGER"
     CHARGING = "CHARGING"
     ERROR = "ERROR"
+    PAUSED = "PAUSED"     # excluido por el operador: no recibe órdenes hasta reanudarlo
 
 
 class MissionState(str, Enum):

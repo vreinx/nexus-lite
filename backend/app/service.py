@@ -118,7 +118,7 @@ class FleetService:
         for m in active:
             if m.state == MissionState.IN_PROGRESS and carrying(m):
                 # El robot ya había recogido el palet: lo sigue llevando encima.
-                # Recupera su orden y la termina (o queda en pausa si está en ERROR).
+                # Recupera su orden y la termina (o queda en pausa si está en ERROR o pausado).
                 if m.robot_id in restored_robots and self.sim.reattach_carrying(m, m.robot_id):
                     continue
                 # Sin el estado del robot no sabemos dónde está el palet: a revisar.
@@ -285,6 +285,18 @@ class FleetService:
     async def reset_robot(self, robot_id: str) -> Robot:
         async with self._lock:
             self.sim.reset_robot(robot_id)        # KeyError / MissionError
+            await self._flush()
+        return self.sim.robots[robot_id]
+
+    async def pause_robot(self, robot_id: str) -> Robot:
+        async with self._lock:
+            self.sim.pause_robot(robot_id)        # KeyError / MissionError
+            await self._flush()
+        return self.sim.robots[robot_id]
+
+    async def resume_robot(self, robot_id: str) -> Robot:
+        async with self._lock:
+            self.sim.resume_robot(robot_id)       # KeyError / MissionError
             await self._flush()
         return self.sim.robots[robot_id]
 

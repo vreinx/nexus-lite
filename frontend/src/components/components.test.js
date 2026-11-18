@@ -61,6 +61,51 @@ describe('MissionPopover: palets', () => {
   });
 });
 
+import RobotDetail from './RobotDetail.svelte';
+import RobotIcon from './RobotIcon.svelte';
+
+describe('Pausar y reanudar un robot', () => {
+  const robot = (state) => ({ id: 'R1', x: 3, y: 3, battery: 80, state, mission_id: null, target: null });
+  const as = (role) => {
+    fleet.map = MAP;
+    fleet.user = { username: 'u', role, display_name: 'U' };
+    fleet.selectedRobot = 'R1';
+  };
+
+  it('operador, robot activo: puede pausarlo', () => {
+    as('OPERATOR');
+    fleet.robots = { R1: robot('IDLE') };
+    render(RobotDetail);
+    expect(screen.getByText('Pausar')).toBeTruthy();
+    expect(screen.queryByText('Reanudar')).toBeNull();
+  });
+  it('operador, robot en pausa: solo puede reanudarlo y se indica que está excluido', () => {
+    as('OPERATOR');
+    fleet.robots = { R1: robot('PAUSED') };
+    render(RobotDetail);
+    expect(screen.getByText('Reanudar')).toBeTruthy();
+    expect(screen.getByText('Excluido de las órdenes')).toBeTruthy();
+    expect(screen.queryByText('Pausar')).toBeNull();
+    expect(screen.queryByText('Forzar ERROR')).toBeNull();
+  });
+  it('consulta: ve que está en pausa pero no puede reanudarlo', () => {
+    as('VIEWER');
+    fleet.robots = { R1: robot('PAUSED') };
+    render(RobotDetail);
+    expect(screen.getByText('Excluido de las órdenes')).toBeTruthy();
+    expect(screen.queryByText('Reanudar')).toBeNull();
+  });
+  it('el icono del robot en pausa lleva el símbolo de pausa, con y sin palet', () => {
+    for (const loaded of [false, true]) {
+      const { container } = render(RobotIcon, { state: 'PAUSED', loaded });
+      expect(container.querySelectorAll('.pause rect').length).toBe(2);
+      cleanup();
+    }
+    const { container } = render(RobotIcon, { state: 'IDLE' });
+    expect(container.querySelector('.pause')).toBeNull();
+  });
+});
+
 import LoginView from './LoginView.svelte';
 import MissionPanel from './MissionPanel.svelte';
 

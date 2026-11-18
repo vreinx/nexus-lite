@@ -185,7 +185,7 @@
           {/if}
           <RobotIcon state={r.state} angle={r.angle}
                      loaded={['LOADING', 'TO_DROP', 'UNLOADING'].includes(r.state) ||
-                             (!!r.mission_id && ['ERROR', 'TO_CHARGER', 'CHARGING'].includes(r.state))} />
+                             (!!r.mission_id && ['ERROR', 'PAUSED', 'TO_CHARGER', 'CHARGING'].includes(r.state))} />
           <!-- etiqueta y batería no giran: siempre legibles -->
           <rect x="-11" y="-27" width="22" height="11" rx="5.5" fill={r.waiting ? '#d4903f' : '#1e3b32'} opacity="0.9" />
           <text y="-18.5" class="robot-label">{r.id}</text>

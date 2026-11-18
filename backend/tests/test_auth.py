@@ -59,6 +59,8 @@ def test_consulta_puede_ver_pero_no_actuar(client):
         ("delete", "/api/v1/stations/P1/pallet", None),
         ("post", "/api/v1/robots/R1/error", None),
         ("post", "/api/v1/robots/R1/reset", None),
+        ("post", "/api/v1/robots/R1/pause", None),
+        ("post", "/api/v1/robots/R1/resume", None),
     ]
     for method, url, body in acciones:
         r = getattr(client, method)(url, **({"json": body} if body else {}))

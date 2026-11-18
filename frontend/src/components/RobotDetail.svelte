@@ -1,6 +1,6 @@
 <script>
   // F-03: detalle del robot seleccionado (estado, batería y misión actual).
-  import { fleet, ROBOT_COLORS, batteryColor, forceError, resetRobot, isOperator } from '../lib/fleet.svelte.js';
+  import { fleet, ROBOT_COLORS, batteryColor, forceError, resetRobot, pauseRobot, resumeRobot, isOperator } from '../lib/fleet.svelte.js';
   import BatteryChart from './BatteryChart.svelte';
 
   let opError = $state('');
@@ -47,7 +47,8 @@
     <div class="head">
       <strong class="id">{robot.id}</strong>
       <span class="badge" style="background:{ROBOT_COLORS[robot.state]}">{robot.state}</span>
-      {#if waitingCharge}<span class="waiting">Esperando turno de carga</span>
+      {#if robot.state === 'PAUSED'}<span class="paused">Excluido de las órdenes</span>
+      {:else if waitingCharge}<span class="waiting">Esperando turno de carga</span>
       {:else if robot.waiting}<span class="waiting">Cediendo el paso</span>{/if}
     </div>
 
@@ -83,9 +84,16 @@
       {:else if robot.state === 'ERROR'}
         <button class="primary small" disabled={busy} onclick={() => operate(resetRobot)}
                 title="Rearmar: vuelve a IDLE, o a cargar a C1 si tiene poca batería">Rearmar</button>
+      {:else if robot.state === 'PAUSED'}
+        <button class="primary small" disabled={busy} onclick={() => operate(resumeRobot)}
+                title="Reanudar: vuelve a recibir órdenes, o retoma la entrega si lleva un palet">Reanudar</button>
       {:else}
-        <button class="danger small" disabled={busy} onclick={() => operate(forceError)}
-                title="Simula una avería: su orden se reasigna, o queda en pausa si lleva el palet">Forzar ERROR</button>
+        <span class="btns">
+          <button class="small" disabled={busy} onclick={() => operate(pauseRobot)}
+                  title="Pausar: se para y no recibe órdenes hasta reanudarlo. Su orden pasa a otro robot, o queda en pausa si ya lleva el palet">Pausar</button>
+          <button class="danger small" disabled={busy} onclick={() => operate(forceError)}
+                  title="Simula una avería: su orden se reasigna, o queda en pausa si lleva el palet">Forzar ERROR</button>
+        </span>
       {/if}
     </div>
     {#if opError}<p class="op-error" role="alert">{opError}</p>{/if}
@@ -101,6 +109,9 @@
   dd { margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .waiting { font-size: 12px; font-weight: 600; color: #9a6418; background: #fbefd9;
              padding: 2px 8px; border-radius: 999px; }
+  .paused { font-size: 12px; font-weight: 600; color: #3f4a54; background: #e4e8ec;
+            padding: 2px 8px; border-radius: 999px; }
+  .btns { display: flex; gap: 6px; }
   .history { font-size: 13px; color: var(--accent); font-weight: 600; }
   .ops { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; gap: 8px; }
   button.small { padding: 3px 10px; font-size: 12px; }

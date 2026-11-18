@@ -227,6 +227,34 @@ async def reset_robot(robot_id: str, request: Request):
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
 
 
+@router.post("/robots/{robot_id}/pause", dependencies=OPERATOR_ONLY, response_model=RobotOut, tags=["robots"],
+             responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}})
+async def pause_robot(robot_id: str, request: Request):
+    """Pausar un robot: se para donde está y queda excluido de las órdenes
+    hasta reanudarlo. Si aún no llevaba el palet, su orden vuelve a PENDING y
+    la coge el robot disponible más cercano; si lo llevaba a bordo, queda en
+    pausa con él. 409 si ya está en pausa o en ERROR."""
+    try:
+        return RobotOut.of(await _service(request).pause_robot(robot_id))
+    except KeyError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "robot no encontrado")
+    except MissionError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+
+
+@router.post("/robots/{robot_id}/resume", dependencies=OPERATOR_ONLY, response_model=RobotOut, tags=["robots"],
+             responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}})
+async def resume_robot(robot_id: str, request: Request):
+    """Reanudar un robot en pausa: vuelve a IDLE, o retoma la entrega si
+    llevaba un palet. 409 si no está en pausa."""
+    try:
+        return RobotOut.of(await _service(request).resume_robot(robot_id))
+    except KeyError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "robot no encontrado")
+    except MissionError as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
+
+
 # -------------------------------------------------------------------- robots
 @router.get("/robots", response_model=list[RobotOut], tags=["robots"])
 async def list_robots(request: Request):

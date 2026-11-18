@@ -93,7 +93,8 @@ class FleetSimulator:
     def restore_robots(self, saved: dict[str, dict]) -> list[str]:
         """Restaura posición, batería y estado guardados tras un reinicio.
 
-        - Los robots en ERROR siguen en ERROR (reiniciar el software no los arregla).
+        - Los robots en ERROR siguen en ERROR (reiniciar el software no los arregla)
+          y los pausados siguen en pausa (la decisión del operador se conserva).
         - Si estaba en una plaza de C1 sin terminar de cargar, sigue cargando.
         - El resto arranca IDLE donde estaba (luego irá a su parking o a cargar).
         - Si la posición guardada ya no es válida (mapa cambiado, fuera de la
@@ -109,8 +110,8 @@ class FleetSimulator:
                 if self._in_grid(pos) and pos not in used:
                     r.x, r.y = pos
                     r.battery = max(0.0, min(100.0, float(s["battery"])))
-                    if s.get("state") == RobotState.ERROR.value:
-                        r.state = RobotState.ERROR
+                    if s.get("state") in (RobotState.ERROR.value, RobotState.PAUSED.value):
+                        r.state = RobotState(s["state"])
                     elif pos in self.charger_bays and r.battery < self.p.charge_target:
                         r.state, r.target = RobotState.TO_CHARGER, pos
                         self.charger_slots[r.id] = pos      # llega en el primer tick -> CHARGING
@@ -134,28 +135,70 @@ class FleetSimulator:
         m = self.missions[r.mission_id]
         return m.state == MissionState.IN_PROGRESS and r.state != RobotState.LOADING
 
-    def _break_down(self, r: Robot, reason: str) -> None:
-        """Avería (forzada o batería agotada). Su orden:
+    def _break_down(self, r: Robot, reason: str, state: RobotState = RobotState.ERROR) -> None:
+        """El robot deja de trabajar: avería (forzada o batería agotada, ERROR)
+        o pausa del operador (PAUSED). Su orden:
           - si aún no lleva el palet (va a recogerlo o lo está cargando), vuelve
             a PENDING y la coge otro robot: el palet sigue en el origen;
           - si ya lo lleva a bordo, la orden queda EN PAUSA (sigue IN_PROGRESS y
-            asignada a este robot). Al rearmarlo, termina la entrega.
+            asignada a este robot). Al rearmarlo o reanudarlo, termina la entrega.
         """
+        paused = state == RobotState.PAUSED
         if r.mission_id:
             m = self.missions[r.mission_id]
             if self.is_carrying(r):
-                m.reason = f"en pausa: {r.id} en ERROR con el palet a bordo ({reason}); se reanuda al rearmarlo"
+                m.reason = (f"en pausa: {r.id} pausado con el palet a bordo ({reason}); se reanuda al reanudarlo"
+                            if paused else
+                            f"en pausa: {r.id} en ERROR con el palet a bordo ({reason}); se reanuda al rearmarlo")
             else:
                 m.state, m.robot_id = MissionState.PENDING, None
-                m.reason = f"reasignada: {r.id} pasó a ERROR ({reason})"
+                m.reason = (f"reasignada: {r.id} pausado ({reason})" if paused
+                            else f"reasignada: {r.id} pasó a ERROR ({reason})")
                 r.mission_id = None
             self._touch_mission(m)
             self._touch_station(m.origin)
         self.charger_slots.pop(r.id, None)
         if r.id in self.charger_queue:
             self.charger_queue.remove(r.id)
-        r.state, r.target, r.waiting, r.path = RobotState.ERROR, None, False, None
+        r.state, r.target, r.waiting, r.path = state, None, False, None
         self._touch_robot(r)
+
+    def pause_robot(self, robot_id: str) -> None:
+        """El operador excluye un robot: se para donde está y no recibe órdenes
+        hasta reanudarlo. Su orden se trata como en una avería (ver _break_down):
+        sin el palet a bordo vuelve a PENDING y la coge el robot disponible más
+        cercano; con el palet a bordo queda en pausa con él."""
+        r = self.robots[robot_id]                       # KeyError -> 404
+        if r.state == RobotState.PAUSED:
+            raise MissionError(f"{robot_id} ya está en pausa")
+        if r.state == RobotState.ERROR:
+            raise MissionError(f"{robot_id} está en ERROR: hay que rearmarlo, no pausarlo")
+        self._break_down(r, "por el operador", state=RobotState.PAUSED)
+
+    def resume_robot(self, robot_id: str) -> None:
+        """Reanuda un robot en pausa.
+          - Con un palet a bordo retoma la entrega; si no le llega la batería
+            (se pausó mientras iba a cargar o cargando), va antes a C1.
+          - Sin palet vuelve a IDLE donde está: puede recibir órdenes, y si
+            tiene poca batería irá a cargar como cualquier robot libre.
+        """
+        r = self.robots[robot_id]
+        if r.state != RobotState.PAUSED:
+            raise MissionError(f"{robot_id} no está en pausa")
+        if not r.mission_id:
+            r.state = RobotState.IDLE
+        elif self._enough_to_deliver(r):
+            self._resume_delivery(r)
+        else:
+            self._send_to_charger(r)              # carga con el palet encima y después entrega
+        r.blocked_ticks, r.hold_ticks = 0, 0
+        self._touch_robot(r)
+
+    def _enough_to_deliver(self, r: Robot) -> bool:
+        """Con el palet a bordo: ¿le llega la batería para entregarlo y volver a C1?"""
+        dest = self._station_pos(self.missions[r.mission_id].destination)
+        need = (manhattan(r.pos, dest) + manhattan(dest, self.charger_bays[0])) * self.p.battery_per_cell
+        return r.battery - need >= BATTERY_RESERVE
 
     def reset_robot(self, robot_id: str) -> None:
         """Rearma un robot en ERROR.
@@ -171,10 +214,7 @@ class FleetSimulator:
             raise MissionError(f"{robot_id} no está en ERROR")
 
         if r.mission_id:
-            m = self.missions[r.mission_id]
-            dest = self._station_pos(m.destination)
-            need = (manhattan(r.pos, dest) + manhattan(dest, self.charger_bays[0])) * self.p.battery_per_cell
-            enough = r.battery - need >= BATTERY_RESERVE
+            enough = self._enough_to_deliver(r)
         else:
             enough = r.battery >= self.p.low_battery_threshold
 
@@ -203,7 +243,7 @@ class FleetSimulator:
 
     def reattach_carrying(self, m: Mission, robot_id: str) -> bool:
         """Tras un reinicio: el robot que llevaba el palet recupera su orden.
-        Si estaba en ERROR, la orden queda en pausa hasta rearmarlo; si no,
+        Si estaba en ERROR o en pausa, la orden queda en pausa con él; si no,
         continúa la entrega. Devuelve False si el robot no existe."""
         r = self.robots.get(robot_id)
         if r is None or r.mission_id is not None:
@@ -213,6 +253,9 @@ class FleetSimulator:
         r.mission_id = m.id
         if r.state == RobotState.ERROR:
             m.reason = f"en pausa: {r.id} en ERROR con el palet a bordo; se reanuda al rearmarlo"
+            self._touch_mission(m)
+        elif r.state == RobotState.PAUSED:
+            m.reason = f"en pausa: {r.id} pausado con el palet a bordo; se reanuda al reanudarlo"
             self._touch_mission(m)
         elif r.state in (RobotState.TO_CHARGER, RobotState.CHARGING):
             m.reason = f"reanudada tras reinicio: {r.id} carga y después entrega"
@@ -469,7 +512,8 @@ class FleetSimulator:
     #    o porque está parado en su camino), el menos prioritario se aparta a una
     #    celda lateral libre y espera un tick: siempre cede el paso. Los robots
     #    aparcados también se apartan, y después vuelven a su parking.
-    #  - Si lo bloquea un robot que no puede moverse (cargando, en C1, en error),
+    #  - Si lo bloquea un robot que no puede moverse (cargando, en C1, en error,
+    #    en pausa),
     #    espera DETOUR_AFTER ticks y lo rodea por un lateral.
     #  - Si la celda bloqueada es su propio destino (estación ocupada), espera.
     #  - Una casilla de entrega con un palet recién entregado está bloqueada
@@ -530,7 +574,7 @@ class FleetSimulator:
         # casillas de entrega con palet. Los que se mueven se gestionan abajo.
         static = self._pallet_blocked | {
             r.pos for r in self.robots.values()
-            if r.state in (RobotState.ERROR, RobotState.CHARGING,
+            if r.state in (RobotState.ERROR, RobotState.PAUSED, RobotState.CHARGING,
                            RobotState.LOADING, RobotState.UNLOADING)
         }
         # Celda que necesita cada robot que se ha quedado bloqueado este tick.

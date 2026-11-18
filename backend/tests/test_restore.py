@@ -204,6 +204,30 @@ def test_reinicio_robot_cargando_el_palet_reencola_la_orden():
     assert "P1" in service.sim.pallets
 
 
+def test_reinicio_robot_en_pausa_sigue_en_pausa():
+    """La pausa es una decisión del operador: sobrevive al reinicio, con o sin palet."""
+    from app.domain.models import RobotState
+    repo = InMemoryMissionRepository([_mision("a_bordo", MissionState.IN_PROGRESS, origin="P4")])
+    repo.stations = {"P4": False}
+    repo.robots = {
+        "R1": {"_id": "R1", "x": 10, "y": 5, "battery": 80.0, "state": "PAUSED"},   # con el palet
+        "R2": {"_id": "R2", "x": 3, "y": 3, "battery": 90.0, "state": "PAUSED"},    # sin orden
+    }
+    service = FleetService(build_sim().cfg, repo)
+
+    async def scenario():
+        await service.start(run_loop=False)
+        await service.create_mission("P1", "D1", 1)
+        for _ in range(3):
+            await service.step()
+
+    asyncio.run(scenario())
+    r1, r2, m = service.sim.robots["R1"], service.sim.robots["R2"], service.sim.missions["a_bordo"]
+    assert r1.state == RobotState.PAUSED and r1.mission_id == "a_bordo" and r1.pos == (10, 5)
+    assert m.state == MissionState.IN_PROGRESS and "en pausa" in m.reason
+    assert r2.state == RobotState.PAUSED and r2.mission_id is None and r2.pos == (3, 3)
+
+
 def test_reinicio_robot_en_error_con_palet_queda_en_pausa():
     from app.domain.models import RobotState
     repo = InMemoryMissionRepository([_mision("a_bordo", MissionState.IN_PROGRESS, origin="P4")])

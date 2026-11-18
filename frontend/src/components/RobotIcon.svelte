@@ -6,10 +6,12 @@
   // Lomo según estado:
   //   - Caja de mercancía cuando transporta (LOADING, TO_DROP, UNLOADING).
   //   - CHARGING: rayo.   - ERROR: triángulo de aviso y parpadeo.
+  //   - PAUSED: símbolo de pausa (dos barras), siempre vertical aunque el
+  //     robot esté girado, y chasis gris pizarra. No parpadea: no es una alarma.
   //   - Resto: flecha que indica el sentido de marcha.
   import { ROBOT_COLORS } from '../lib/fleet.svelte.js';
 
-  // loaded: lleva un palet encima (también si está en ERROR o cargando batería
+  // loaded: lleva un palet encima (también si está en ERROR, en pausa o cargando batería
   // con el palet a bordo, a la espera de terminar la entrega).
   let { state = 'IDLE', angle = 0, loaded = null } = $props();
 
@@ -47,7 +49,14 @@
       <rect x="-10" y="-8" width="16" height="16" rx="2" fill="#d6a46c" stroke="#8b5a2b" stroke-width="1.2" />
       <rect x="-10" y="-1.2" width="16" height="2.4" fill="#f1d3a8" />
     </g>
-    {#if state === 'ERROR'}
+    {#if state === 'PAUSED'}
+      <!-- pausado con el palet a bordo: distintivo de pausa sobre la caja -->
+      <g class="pause" style="transform: translate(-2px, 0) rotate({-angle}deg)">
+        <circle r="6.2" fill="#3f4a54" stroke="#fff" stroke-width="1.2" />
+        <rect x="-3" y="-3.2" width="2.2" height="6.4" rx="0.7" fill="#fff" />
+        <rect x="0.8" y="-3.2" width="2.2" height="6.4" rx="0.7" fill="#fff" />
+      </g>
+    {:else if state === 'ERROR'}
       <!-- avería con el palet a bordo: entrega en pausa -->
       <path d="M -2 -6 L 3 3 L -7 3 Z" fill="#d1495b" stroke="#fff" stroke-width="1.2" stroke-linejoin="round" />
       <path d="M -2 -3 L -2 0 M -2 1.6 L -2 1.7" stroke="#fff" stroke-width="1.3" stroke-linecap="round" />
@@ -60,6 +69,11 @@
     {#if state === 'CHARGING'}
       <path class="pulse" d="M -1 -6.5 L -6 1 L -2 1 L -3.5 6.5 L 2.5 -1.5 L -1.5 -1.5 Z"
             fill="#fde68a" stroke="#8a5a14" stroke-width="1" stroke-linejoin="round" />
+    {:else if state === 'PAUSED'}
+      <g class="pause" style="transform: translate(-2px, 0) rotate({-angle}deg)">
+        <rect x="-5" y="-5.5" width="3.6" height="11" rx="1.2" fill="#fff" />
+        <rect x="1.4" y="-5.5" width="3.6" height="11" rx="1.2" fill="#fff" />
+      </g>
     {:else if state === 'ERROR'}
       <path d="M -2 -6 L 4 5 L -8 5 Z" fill="#fff" stroke="#fff" stroke-width="1.5" stroke-linejoin="round" />
       <path d="M -2 -2.5 L -2 1.5 M -2 3.3 L -2 3.4" stroke="#d1495b" stroke-width="1.6" stroke-linecap="round" />

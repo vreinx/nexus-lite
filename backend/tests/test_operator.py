@@ -136,6 +136,104 @@ def test_rearmar_sin_bateria_y_sin_plaza_libre_falla(make_sim):
         sim.reset_robot("R1")
 
 
+# ------------------------------------------------------- pausar / reanudar
+def test_robot_en_pausa_no_recibe_ordenes(make_sim):
+    # R1 está pegado a P1, pero en pausa: la orden la coge R2 aunque esté lejos.
+    sim = make_sim(robots=[{"id": "R1", "x": 1, "y": 1}, {"id": "R2", "x": 15, "y": 9}])
+    sim.pause_robot("R1")
+    r1 = sim.robots["R1"]
+    assert r1.state == RobotState.PAUSED
+    sim.add_mission(mission("m1", "P1", "D1"))
+    for _ in range(5):
+        sim.tick()
+    assert sim.missions["m1"].robot_id == "R2"
+    assert r1.state == RobotState.PAUSED and r1.pos == (1, 1)     # ni se mueve ni va al parking
+    with pytest.raises(MissionError, match="ya está en pausa"):
+        sim.pause_robot("R1")
+
+    # Al reanudarlo vuelve a estar disponible
+    sim.resume_robot("R1")
+    assert r1.state == RobotState.IDLE
+    sim.add_mission(mission("m2", "P2", "D1"))
+    sim.tick()
+    assert sim.missions["m2"].robot_id == "R1"
+    with pytest.raises(MissionError, match="no está en pausa"):
+        sim.resume_robot("R1")
+
+
+def test_pausar_antes_de_recoger_reasigna_al_mas_cercano_disponible(make_sim):
+    sim = make_sim(robots=[
+        {"id": "R1", "x": 3, "y": 1},
+        {"id": "R2", "x": 9, "y": 9},
+        {"id": "R3", "x": 6, "y": 1},                  # el siguiente más cercano con batería
+        {"id": "R4", "x": 5, "y": 1, "battery": 10},   # más cerca aún, pero no está en condiciones
+    ])
+    sim.add_mission(mission("m1", "P1", "D1"))
+    sim.tick()
+    m = sim.missions["m1"]
+    assert m.robot_id == "R1"
+    sim.pause_robot("R1")
+    assert m.state == MissionState.PENDING and m.robot_id is None and "pausado" in m.reason
+    assert sim.robots["R1"].mission_id is None
+    sim.tick()
+    assert m.state == MissionState.ASSIGNED and m.robot_id == "R3"
+    run_until(sim, lambda: m.state == MissionState.DONE)
+    assert sim.robots["R1"].state == RobotState.PAUSED
+
+
+def test_pausar_con_el_palet_a_bordo_y_al_reanudar_termina_la_entrega(make_sim):
+    sim = make_sim(robots=[{"id": "R1", "x": 0, "y": 2}, {"id": "R2", "x": 9, "y": 9}])
+    sim.add_mission(mission("m1", "P1", "D1"))
+    r, m = sim.robots["R1"], sim.missions["m1"]
+    run_until(sim, lambda: r.state == RobotState.TO_DROP)
+    for _ in range(3):
+        sim.tick()
+    sim.pause_robot("R1")
+    donde = r.pos
+
+    # La orden queda en pausa con él: nadie más puede llevarse ese palet
+    assert r.state == RobotState.PAUSED and r.mission_id == "m1" and sim.is_carrying(r)
+    assert m.state == MissionState.IN_PROGRESS and m.robot_id == "R1" and "en pausa" in m.reason
+    for _ in range(5):
+        sim.tick()
+    assert r.pos == donde and m.state == MissionState.IN_PROGRESS
+
+    sim.resume_robot("R1")
+    assert r.state == RobotState.TO_DROP
+    run_until(sim, lambda: m.state == MissionState.DONE)
+    assert "D1" in sim.pallets
+
+
+def test_pausar_un_robot_en_error_no_se_puede_y_un_pausado_es_un_obstaculo(make_sim):
+    sim = make_sim(robots=[{"id": "R1", "x": 0, "y": 4}, {"id": "R2", "x": 5, "y": 4}])
+    sim.force_error("R1")
+    with pytest.raises(MissionError, match="ERROR"):
+        sim.pause_robot("R1")
+    sim.reset_robot("R1")
+
+    sim.pause_robot("R2")                          # parado en la fila por la que R1 iría a D1
+    sim.add_mission(mission("m1", "P2", "D1"))
+    r1 = sim.robots["R1"]
+    run_until(sim, lambda: r1.state == RobotState.TO_DROP)
+    sim.tick()
+    assert r1.path and (5, 4) not in r1.path       # la ruta lo rodea
+    run_until(sim, lambda: sim.missions["m1"].state == MissionState.DONE)
+
+
+def test_pausar_un_robot_que_carga_libera_su_plaza_de_c1(make_sim):
+    sim = make_sim(robots=[{"id": "R1", "x": 10, "y": 1, "battery": 10}])
+    r = sim.robots["R1"]
+    run_until(sim, lambda: r.state == RobotState.CHARGING)
+    sim.pause_robot("R1")
+    assert r.state == RobotState.PAUSED and "R1" not in sim.charger_slots
+    bateria = r.battery
+    for _ in range(3):
+        sim.tick()
+    assert r.battery == bateria                    # en pausa no carga
+    sim.resume_robot("R1")
+    run_until(sim, lambda: r.state == RobotState.CHARGING)    # vuelve a cargar por su cuenta
+
+
 # ----------------------------------------------------------- retirar palet
 def test_retirar_palet(make_sim):
     sim = make_sim()
@@ -171,6 +269,18 @@ def test_api_operador(client):
     assert r.status_code == 200 and r.json()["state"] == "IDLE"
     assert client.post("/api/v1/robots/R1/reset").status_code == 409
     assert client.post("/api/v1/robots/R9/error").status_code == 404
+
+    r = client.post("/api/v1/robots/R1/pause")
+    assert r.status_code == 200 and r.json()["state"] == "PAUSED"
+    assert client.post("/api/v1/robots/R1/pause").status_code == 409
+    assert client.post("/api/v1/robots/R1/error").status_code == 200      # un robot en pausa también se avería
+    assert client.post("/api/v1/robots/R1/resume").status_code == 409     # ya no está en pausa, sino en ERROR
+    assert client.post("/api/v1/robots/R1/reset").status_code == 200
+    assert client.post("/api/v1/robots/R1/pause").status_code == 200
+    r = client.post("/api/v1/robots/R1/resume")
+    assert r.status_code == 200 and r.json()["state"] == "IDLE"
+    assert client.post("/api/v1/robots/R9/pause").status_code == 404
+    assert client.post("/api/v1/robots/R9/resume").status_code == 404
 
     assert client.delete("/api/v1/stations/P3/pallet").status_code == 200
     assert client.delete("/api/v1/stations/P3/pallet").status_code == 409

@@ -66,7 +66,7 @@ Conviene usarlo solo para consultar: si se editan documentos con el backend en m
 
    | Usuario / contraseña | Rol | Qué puede hacer |
    |---|---|---|
-   | `operador` / `operador` | Operador | Todo: crear, cancelar y reenviar órdenes, declarar y retirar palets, forzar ERROR y rearmar robots |
+   | `operador` / `operador` | Operador | Todo: crear, cancelar y reenviar órdenes, declarar y retirar palets, pausar y reanudar robots, forzar ERROR y rearmarlos |
    | `consulta` / `consulta` | Consulta | Solo ver: planta, órdenes, detalle de robots e historial |
 
    Arriba a la derecha se ve con qué rol estás actuando y debe aparecer **En vivo**. *Salir* cierra la sesión.
@@ -74,7 +74,7 @@ Conviene usarlo solo para consultar: si se editan documentos con el backend en m
 3. **Seguir una orden:** el robot asignado va al origen, carga el palet (3 s), lo lleva al destino y lo descarga (3 s). El palet queda 2 s en el destino con un anillo de cuenta atrás y se retira.
 4. **Palets:** un origen sin palet no admite órdenes («No hay nada que mover en la posición P1»). Haz clic en él y pulsa *Declarar palet*. Un palet que ya tiene una orden no admite otra, y un destino con un palet recién entregado está ocupado.
 5. **Detalle de robot:** haz clic en un robot (mapa o tarjeta «Flota») para ver su estado, batería, ruta, orden actual y el histórico de batería de los últimos 10 minutos (InfluxDB).
-6. **Averías:** en el detalle de un robot, *Forzar ERROR* simula una avería y *Rearmar* lo recupera. Si lleva un palet, la orden queda en pausa y al rearmarlo termina la entrega.
+6. **Averías:** en el detalle de un robot, *Forzar ERROR* simula una avería y *Rearmar* lo recupera. Si lleva un palet, la orden queda en pausa y al rearmarlo termina la entrega. *Pausar* hace lo mismo a propósito: el robot se para, cambia de color y muestra el símbolo de pausa, y no recibe órdenes hasta pulsar *Reanudar*. Si iba a recoger un palet, la orden pasa al robot disponible más cercano.
 7. **Carga:** crea muchas órdenes seguidas para que bajen las baterías. Los robots van a C1 (2 plazas), esperan en la celda de cola o, si también está ocupada, en un parking, sin coger órdenes mientras esperan.
 8. **Historial:** pestaña *Historial*, con filtros (estado, robot, origen, destino, prioridad, fechas, id), paginación, exportación a CSV y reenvío de órdenes fallidas o canceladas.
 9. **Reinicio (B-06):** con robots trabajando, ejecuta `docker compose restart backend`. La interfaz muestra *Sin conexión*, se reconecta sola y los robots siguen donde estaban, con su batería y sus órdenes.
@@ -83,7 +83,7 @@ Conviene usarlo solo para consultar: si se editan documentos con el backend en m
 
 ## 3. Tests
 
-**Backend (pytest, 103 tests).** Con Docker, sin instalar nada:
+**Backend (pytest, 109 tests).** Con Docker, sin instalar nada:
 
 ```bash
 docker compose run --rm --no-deps backend python -m pytest -q
@@ -105,13 +105,13 @@ No necesitan MongoDB ni InfluxDB: usan implementaciones en memoria de los reposi
 | `test_simulator.py` | Ciclo completo de una orden (30 ticks exactos), carga de batería y cola de C1, cancelación, validación, batería agotada |
 | `test_traffic.py` | Nunca dos robots en la misma celda, prioridad y antigüedad en cruces, ceder el paso. **Test de estrés**: 60 órdenes aleatorias con varias semillas, sin colisiones, sin robots sin batería, sin entrar en casillas con palet y con todas las órdenes terminadas |
 | `test_pallets.py` | Palets en origen y destino, reservas, destino ocupado, declarar palet |
-| `test_operator.py` | A*, forzar ERROR, rearmar (con y sin palet a bordo, con y sin batería), retirar palet |
+| `test_operator.py` | A*, forzar ERROR, rearmar (con y sin palet a bordo, con y sin batería), pausar y reanudar (exclusión de órdenes, reasignación, palet a bordo), retirar palet |
 | `test_restore.py` | **B-06**: qué pasa con robots, palets y órdenes al reiniciar |
 | `test_api.py` | **B-01 / B-07**: endpoints, códigos de error, filtros del historial, WebSocket |
 | `test_auth.py` | Login, sesión caducada o falsa (401), rol consulta: puede leer y recibe 403 en cada acción; WebSocket sin sesión rechazado |
 | `test_repository.py`, `test_map_config.py` | Consulta a MongoDB de los filtros; validación del mapa |
 
-**Frontend (Vitest, 22 tests).** Necesita Node 22:
+**Frontend (Vitest, 26 tests).** Necesita Node 22:
 
 ```bash
 cd frontend
@@ -119,7 +119,7 @@ npm install
 npm test
 ```
 
-Cubren la lógica pura (`src/lib/logic.js`: orientación de los robots, ruta, filtros, duración, gráfico de batería) y componentes renderizados en un DOM simulado (indicador de conexión, panel de creación de órdenes según el estado del palet).
+Cubren la lógica pura (`src/lib/logic.js`: orientación de los robots, ruta, filtros, duración, gráfico de batería) y componentes renderizados en un DOM simulado (indicador de conexión, panel de creación de órdenes según el estado del palet, botones e icono del robot en pausa).
 
 ## 4. Arquitectura
 
@@ -223,7 +223,7 @@ Definido en `backend/config/map.json`. Si tiene un error (estación fuera de la 
 | **F-03** | Detalle de robot: estado, batería, posición, destino, orden actual e histórico de batería |
 | **F-04** | Indicador *En vivo / Conectando / Sin conexión* con cuenta atrás; reconexión automática (1, 2, 4… hasta 10 s) y mapa en gris mientras no hay conexión |
 | Docker | `docker compose up` levanta todo sin pasos manuales |
-| Tests | Asignación, API y bastante más: 103 en backend y 22 en frontend |
+| Tests | Asignación, API y bastante más: 109 en backend y 26 en frontend |
 | Contrato | OpenAPI automático en `/docs` y tabla en este README |
 
 **Extras opcionales del enunciado que he hecho:**
@@ -260,6 +260,8 @@ Documentación interactiva completa (OpenAPI) en http://localhost:8000/docs. Tod
 | GET | `/robots/{id}/telemetry` | Histórico de InfluxDB (`minutes`, `every`) | 404 · 503 InfluxDB caída |
 | POST | `/robots/{id}/error` 🔒 | Fuerza una avería | 404 · 409 si ya está en ERROR |
 | POST | `/robots/{id}/reset` 🔒 | Rearma un robot en ERROR | 404 · 409 si no está en ERROR o no hay plaza libre en C1 para cargarlo |
+| POST | `/robots/{id}/pause` 🔒 | Pausa un robot: queda excluido de las órdenes (estado `PAUSED`) | 404 · 409 si ya está en pausa o en ERROR |
+| POST | `/robots/{id}/resume` 🔒 | Reanuda un robot en pausa | 404 · 409 si no está en pausa |
 | GET | `/stations` | Palets en orígenes y destinos (`pallet`, `clears_in`, `reserved_by`) | |
 | POST | `/stations/{id}/pallet` 🔒 | Declarar palet en un origen → 201 | 404 · 409 ya hay palet · 422 no es un origen |
 | DELETE | `/stations/{id}/pallet` 🔒 | Retirar palet de un origen | 404 · 409 no hay palet o tiene una orden · 422 |
@@ -304,7 +306,7 @@ El enunciado dice «sin obstáculos ni pathfinding», pero con 5 robots en movim
 - **Turnos por prioridad en cada tick.** Primero se mueven los robots con orden (por prioridad de la orden y, a igualdad, la más antigua), luego los que van a cargar y por último los que van al parking.
 - **Si dos quieren la misma celda,** entra el más prioritario y el otro se para.
 - **Si un robot más prioritario necesita la celda de otro** (de frente, o el otro está parado en su camino), el menos prioritario se aparta a una celda lateral libre: siempre cede el paso. Los robots aparcados también se apartan y después vuelven a su parking.
-- **A\* sobre obstáculos fijos.** Cada robot calcula su ruta con A* rodeando lo que no se va a mover pronto: robots en ERROR, robots cargando o descargando, robots en C1 y casillas de entrega con un palet. A igualdad de coste prefiere moverse primero en X y luego en Y, así que sin obstáculos la ruta es la «L» del enunciado.
+- **A\* sobre obstáculos fijos.** Cada robot calcula su ruta con A* rodeando lo que no se va a mover pronto: robots en ERROR o en pausa, robots cargando o descargando, robots en C1 y casillas de entrega con un palet. A igualdad de coste prefiere moverse primero en X y luego en Y, así que sin obstáculos la ruta es la «L» del enunciado.
 - **Una casilla de entrega con un palet recién entregado está bloqueada:** el robot que va a descargar ahí espera en la casilla de al lado.
 - *Descartado:* A* con reserva de tramos en el tiempo (como un gestor de flota real). Habría sustituido toda la lógica de tráfico, con mucho más riesgo y código difícil de modificar en directo.
 
@@ -323,12 +325,24 @@ He modelado la orden como lo que es en planta: mover un palet concreto.
 - **Si ya lo lleva a bordo,** la orden queda **en pausa**: sigue IN_PROGRESS y asignada a ese robot. Al rearmarlo termina la entrega. Si no le llega la batería, el operario lo lleva a C1, carga con el palet encima y después entrega.
 - **Quedarse sin batería en ruta** se trata igual que una avería.
 
+### Pausa de un robot
+
+Es una avería intencionada: el operador excluye un robot (para revisarlo, limpiarlo o reservarlo) sin tener que fingir un error.
+
+- **Estado propio, `PAUSED`,** y no una marca sobre IDLE: así ninguna regla que busca robots libres (asignación, carga, parking) lo tiene en cuenta, y se ve en el mapa, en la flota y en la telemetría.
+- **Su orden se trata igual que en una avería.** Si aún no lleva el palet, vuelve a PENDING y la coge el robot libre más cercano que cumpla las condiciones de batería de B-02. Si ya lo lleva a bordo, queda en pausa con él, porque el palet está físicamente encima.
+- **Se queda donde está** y los demás lo rodean, como a un robot averiado. Si estaba cargando, libera su plaza de C1 y deja de cargar.
+- **Al reanudar** vuelve a IDLE, o retoma la entrega si llevaba un palet. A diferencia de rearmar, nadie lo lleva a mano a C1: es un robot sano y, si tiene poca batería, va a cargar por su cuenta.
+- **La pausa sobrevive a un reinicio** (B-06): es una decisión del operador, no un estado transitorio.
+- **Un robot en ERROR no se puede pausar** (409): primero se rearma. Uno en pausa sí puede averiarse.
+- **Una orden reenviada a un robot concreto** espera en PENDING mientras ese robot esté en pausa.
+
 ### Reinicio (B-06)
 
 - **Persistencia.** En MongoDB guardo el **estado actual**: órdenes, robots (posición, batería, estado) y palets de origen. En InfluxDB, el **histórico**. Cada base de datos para lo suyo.
-- **Robots:** vuelven a donde estaban, con su batería. Los que estaban en ERROR siguen en ERROR, porque reiniciar el software no arregla un robot. El que cargaba en C1 sigue cargando.
+- **Robots:** vuelven a donde estaban, con su batería. Los que estaban en ERROR siguen en ERROR, porque reiniciar el software no arregla un robot, y los pausados siguen en pausa. El que cargaba en C1 sigue cargando.
 - **Órdenes PENDING y ASSIGNED:** vuelven a PENDING y se reasignan. Como el robot sigue donde estaba, lo normal es que la vuelva a coger él.
-- **Órdenes con el palet a bordo:** el robot recupera su orden y la termina, o queda en pausa si estaba en ERROR. Si no se pudo recuperar el estado de ese robot, la orden pasa a FAILED («revisar y reenviar»). Prefiero que una orden falle de forma visible a que el sistema invente dónde está un palet.
+- **Órdenes con el palet a bordo:** el robot recupera su orden y la termina, o queda en pausa si estaba en ERROR o pausado. Si no se pudo recuperar el estado de ese robot, la orden pasa a FAILED («revisar y reenviar»). Prefiero que una orden falle de forma visible a que el sistema invente dónde está un palet.
 - **Robustez:**
   - Una orden se guarda en MongoDB **antes** de responder 201. Si falla, se deshace y se responde 503.
   - Si falla una escritura durante un tick, se reintenta en el siguiente.
@@ -358,6 +372,7 @@ El enunciado pide algo pequeño y bien hecho en 6–8 horas. El **núcleo obliga
 - Parkings repartidos por el mapa: el robot libre vuelve al más cercano.
 - Cola de carga con espera en parking sin coger órdenes.
 - Averías y rearme con la entrega en pausa.
+- Pausar y reanudar robots para excluirlos de las órdenes.
 - Persistencia del estado de robots y palets.
 - Crear órdenes haciendo clic en el mapa.
 - Historial con filtros, CSV y reenvío.
@@ -385,7 +400,7 @@ El enunciado pide algo pequeño y bien hecho en 6–8 horas. El **núcleo obliga
 - **Memoria:** purgar del simulador las órdenes terminadas (hoy se quedan en memoria hasta reiniciar).
 - **Más tests:** extremo a extremo (Playwright) contra el `docker compose`, y tests de integración contra MongoDB e InfluxDB reales.
 - **CI** con lint y tests en cada commit.
-- **Opciones** Operaciones sobre los robots desde el sistema, por ejemplo excluir o forzar carga. 
+- **Más operaciones sobre los robots** desde el sistema, por ejemplo forzar una carga.
 - **Observabilidad:** métricas de la flota (órdenes por hora, tiempo medio, ocupación de C1, tiempo esperando paso) en un cuadro de mando sobre InfluxDB.
 
 ## 10. Horas dedicadas y uso de IA
