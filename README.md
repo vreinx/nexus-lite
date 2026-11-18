@@ -365,8 +365,6 @@ El enunciado pide algo pequeño y bien hecho en 6–8 horas. El **núcleo obliga
 - Tests de frontend.
 - Diseño visual con la paleta de color de AND&OR.
 
-Lo indico aquí para que quede claro qué es obligatorio y qué es añadido, y porque el tiempo total supera el límite (ver [sección 10](#7.5-horas-dedicadas-y-uso-de-ia)).
-
 ## 9. Qué mejoraría con más tiempo o antes de una planta real
 
 **Antes de llevarlo a una planta:**
