@@ -118,6 +118,25 @@ def test_no_se_cancela_in_progress_ni_terminada(make_sim):
         sim.cancel_mission("no-existe")
 
 
+def test_orden_reservada_para_un_robot_solo_la_coge_ese(make_sim):
+    """Reenvío a un robot concreto, dentro del simulador (con el filtro de batería)."""
+    sim = make_sim()
+    m = mission("m1", origin="P1")          # el más cercano a P1 es R1; se reserva para R5
+    m.preferred_robot = "R5"
+    sim.add_mission(m)
+    sim.tick()
+    assert m.robot_id == "R5"
+
+    # Si ese robot no está disponible, la orden espera: no la coge otro
+    sim2 = make_sim()
+    m2 = mission("m2", origin="P1")
+    m2.preferred_robot = "R5"
+    sim2.force_error("R5")
+    sim2.add_mission(m2)
+    sim2.tick()
+    assert m2.state == MissionState.PENDING and m2.robot_id is None
+
+
 @pytest.mark.parametrize("origin,dest,priority", [
     ("D1", "D2", 2),   # origen no es de recogida
     ("P1", "P2", 2),   # destino no es de entrega

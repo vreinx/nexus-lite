@@ -12,7 +12,7 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
-from app.domain.models import Mission, MissionState, Robot
+from app.domain.models import Mission, MissionState, Robot, RobotState
 from app.domain.simulator import FleetSimulator, MissionError
 from app.map_config import MapConfig
 from app.repository import MissionFilter, MissionRepository
@@ -85,12 +85,27 @@ class FleetService:
 
         Robots: vuelven a la posición, batería y estado guardados en Mongo
         (ver FleetSimulator.restore_robots).
-        Misiones: las ASSIGNED e IN_PROGRESS vuelven a PENDING y se reasignan;
-        ninguna se pierde. Como el robot sigue donde estaba, lo normal es que
-        la vuelva a coger él (es el más cercano). En una planta real habría que
-        reconciliar con lo que reporta cada robot (p. ej. si lleva la carga).
+        Misiones: las ASSIGNED y las IN_PROGRESS cuyo robot aún estaba cargando
+        el palet vuelven a PENDING y se reasignan; ninguna se pierde. Como el
+        robot sigue donde estaba, lo normal es que la vuelva a coger él (es el
+        más cercano). En una planta real habría que reconciliar con lo que
+        reporta cada robot (p. ej. si lleva la carga).
         """
-        restored_robots = self.sim.restore_robots(await self.repo.load_robots())
+        saved_robots = await self.repo.load_robots()
+
+        def carrying(m: Mission) -> bool:
+            """¿El robot de esta orden IN_PROGRESS ya llevaba el palet encima?
+            Se decide por el estado guardado del robot: una orden IN_PROGRESS
+            solo tiene a su robot en LOADING (palet aún en el origen) o con el
+            palet a bordo. No vale mirar si el origen está vacío: el operador
+            puede haberlo repuesto con otro palet después de la recogida.
+            Sin estado guardado del robot, solo queda ese indicio."""
+            state = (saved_robots.get(m.robot_id) or {}).get("state")
+            if state is not None:
+                return state != RobotState.LOADING.value
+            return m.origin not in self.sim.pallets
+
+        restored_robots = self.sim.restore_robots(saved_robots)
         robots, _ = self.sim.drain_changes()
         await self.repo.save_robots(robots)
         log.info("Reinicio: %d robots restaurados desde la base de datos", len(restored_robots))
@@ -101,7 +116,7 @@ class FleetService:
         active = sorted(await self.repo.list_active(), key=lambda m: m.created_at)
         invalid: list[Mission] = []
         for m in active:
-            if m.state == MissionState.IN_PROGRESS and m.origin not in self.sim.pallets:
+            if m.state == MissionState.IN_PROGRESS and carrying(m):
                 # El robot ya había recogido el palet: lo sigue llevando encima.
                 # Recupera su orden y la termina (o queda en pausa si está en ERROR).
                 if m.robot_id in restored_robots and self.sim.reattach_carrying(m, m.robot_id):

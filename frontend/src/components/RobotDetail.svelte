@@ -85,7 +85,7 @@
                 title="Rearmar: vuelve a IDLE, o a cargar a C1 si tiene poca batería">Rearmar</button>
       {:else}
         <button class="danger small" disabled={busy} onclick={() => operate(forceError)}
-                title="Simula una avería: su orden se reasigna o falla si lleva el palet">Forzar ERROR</button>
+                title="Simula una avería: su orden se reasigna, o queda en pausa si lleva el palet">Forzar ERROR</button>
       {/if}
     </div>
     {#if opError}<p class="op-error" role="alert">{opError}</p>{/if}

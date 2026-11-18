@@ -64,7 +64,8 @@ def plan_assignments(
             # Reenvío a un robot concreto: espera a que ese robot quede libre.
             capable = [r for r in capable if r.id == mission.preferred_robot]
         if charger is not None:
-            capable = [r for r in free
+            # Sobre `capable`, no sobre `free`: si no, se pierde el filtro anterior.
+            capable = [r for r in capable
                        if r.battery - mission_cost(r.pos, origin, dest, charger, per_cell) >= reserve]
         if not capable:
             continue   # ningún robot libre llega con esta misión; se prueba la siguiente

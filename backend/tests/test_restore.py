@@ -161,6 +161,49 @@ def test_reinicio_el_robot_con_el_palet_a_bordo_termina_la_entrega():
     assert asyncio.run(scenario()).state == MissionState.DONE
 
 
+def test_reinicio_con_palet_a_bordo_y_origen_repuesto_no_pierde_el_palet():
+    """El operador repone el origen después de la recogida y se reinicia el
+    backend: el robot sigue con su palet y el nuevo se queda en el origen."""
+    from app.domain.models import RobotState
+    repo = InMemoryMissionRepository()
+    cfg = build_sim().cfg
+
+    antes = FleetService(cfg, repo)
+    async def recoger_y_reponer():
+        m = await antes.create_mission("P1", "D1", 2)
+        for _ in range(60):
+            await antes.step()
+            r = antes.sim.robots.get(antes.sim.missions[m.id].robot_id or "")
+            if r and r.state == RobotState.TO_DROP:
+                break
+        assert r.state == RobotState.TO_DROP
+        await antes.declare_pallet("P1")
+        return m.id, r.id
+    mid, rid = _run(antes, recoger_y_reponer)
+
+    despues = FleetService(cfg, repo)                       # "reinicio" del backend
+    async def terminar():
+        m, r = despues.sim.missions[mid], despues.sim.robots[rid]
+        assert m.state == MissionState.IN_PROGRESS and m.robot_id == rid
+        assert r.mission_id == mid and r.state == RobotState.TO_DROP
+        for _ in range(60):
+            await despues.step()
+        return await repo.get(mid)
+    assert _run(despues, terminar).state == MissionState.DONE
+    assert "P1" in despues.sim.pallets                      # el palet repuesto sigue en P1
+
+
+def test_reinicio_robot_cargando_el_palet_reencola_la_orden():
+    """Robot en LOADING: el palet sigue en el origen, la orden vuelve a PENDING."""
+    repo = InMemoryMissionRepository([_mision("cargando", MissionState.IN_PROGRESS, origin="P1")])
+    repo.robots = {"R1": {"_id": "R1", "x": 0, "y": 1, "battery": 80.0, "state": "LOADING"}}
+    service = FleetService(build_sim().cfg, repo)
+    asyncio.run(service.start(run_loop=False))
+    m = service.sim.missions["cargando"]
+    assert m.state == MissionState.PENDING and m.robot_id is None
+    assert "P1" in service.sim.pallets
+
+
 def test_reinicio_robot_en_error_con_palet_queda_en_pausa():
     from app.domain.models import RobotState
     repo = InMemoryMissionRepository([_mision("a_bordo", MissionState.IN_PROGRESS, origin="P4")])

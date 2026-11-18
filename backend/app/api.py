@@ -204,7 +204,8 @@ async def remove_pallet(station_id: str, request: Request):
              responses={404: {"model": ErrorOut}, 409: {"model": ErrorOut}})
 async def force_robot_error(robot_id: str, request: Request):
     """Forzar un robot a ERROR (avería). Si aún no llevaba el palet, su orden
-    vuelve a PENDING y se reasigna; si lo llevaba a bordo, pasa a FAILED."""
+    vuelve a PENDING y se reasigna; si lo llevaba a bordo, queda en pausa
+    hasta rearmarlo."""
     try:
         return RobotOut.of(await _service(request).force_error(robot_id))
     except KeyError:

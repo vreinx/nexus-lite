@@ -83,7 +83,7 @@ Conviene usarlo solo para consultar: si se editan documentos con el backend en m
 
 ## 3. Tests
 
-**Backend (pytest, 99 tests).** Con Docker, sin instalar nada:
+**Backend (pytest, 102 tests).** Con Docker, sin instalar nada:
 
 ```bash
 docker compose run --rm --no-deps backend python -m pytest -q
@@ -111,7 +111,7 @@ No necesitan MongoDB ni InfluxDB: usan implementaciones en memoria de los reposi
 | `test_auth.py` | Login, sesión caducada o falsa (401), rol consulta: puede leer y recibe 403 en cada acción; WebSocket sin sesión rechazado |
 | `test_repository.py`, `test_map_config.py` | Consulta a MongoDB de los filtros; validación del mapa |
 
-**Frontend (Vitest, 20 tests).** Necesita Node 22:
+**Frontend (Vitest, 22 tests).** Necesita Node 22:
 
 ```bash
 cd frontend
@@ -223,7 +223,7 @@ Definido en `backend/config/map.json`. Si tiene un error (estación fuera de la 
 | **F-03** | Detalle de robot: estado, batería, posición, destino, orden actual e histórico de batería |
 | **F-04** | Indicador *En vivo / Conectando / Sin conexión* con cuenta atrás; reconexión automática (1, 2, 4… hasta 10 s) y mapa en gris mientras no hay conexión |
 | Docker | `docker compose up` levanta todo sin pasos manuales |
-| Tests | Asignación, API y bastante más: 99 en backend y 20 en frontend |
+| Tests | Asignación, API y bastante más: 102 en backend y 22 en frontend |
 | Contrato | OpenAPI automático en `/docs` y tabla en este README |
 
 **Extras opcionales del enunciado que he hecho:**
@@ -365,7 +365,7 @@ El enunciado pide algo pequeño y bien hecho en 6–8 horas. El **núcleo obliga
 - Tests de frontend.
 - Diseño visual con la paleta de color de AND&OR.
 
-Lo indico aquí para que quede claro qué es obligatorio y qué es añadido, y porque el tiempo total supera el límite (ver [sección 10](#10-horas-dedicadas-y-uso-de-ia)).
+Lo indico aquí para que quede claro qué es obligatorio y qué es añadido, y porque el tiempo total supera el límite (ver [sección 10](#7.5-horas-dedicadas-y-uso-de-ia)).
 
 ## 9. Qué mejoraría con más tiempo o antes de una planta real
 
